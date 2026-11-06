@@ -80,6 +80,8 @@ const liveProducts=()=>S.products.filter(p=>p.active!==false);
 const liveMarketers=()=>S.marketers.filter(m=>m.active!==false&&!m.removed_at);
 const teamMarketers=()=>S.marketers.filter(m=>!m.removed_at);
 const removedPill=m=>m.removed_at?' <span class="pill off">removed</span>':"";
+const methodLabel=s=>s.method==="credit"?`Pay later${s.customer?" · "+esc(s.customer):""}${s.due_date?" · due "+fmtDay(s.due_date,{weekday:"short",day:"numeric",month:"short"}):""}`:(s.method==="momo"?"MoMo":"Cash")+(s.customer?" · "+esc(s.customer):"");
+const unpaidCredit=()=>(S.credit||[]).filter(s=>s.method==="credit");
 const salesOn=d=>S.sales.filter(s=>s.day===d);
 const salesIn=(from,to)=>S.sales.filter(s=>s.day>=from&&s.day<=to);
 const sumQty=a=>a.reduce((t,s)=>t+Number(s.qty),0);
@@ -189,6 +191,7 @@ function renderHome(){
   const [f,t]=period("month"), mo=salesIn(f,t);
   const low=liveProducts().filter(p=>{const s=stockOf(p.id);return s.tracked&&s.total<=Number(p.low_stock||0)});
   const owing=S.marketers.map(m=>({m,o:moneyOf(m.id).owes})).filter(x=>x.o>0.009).sort((a,b)=>b.o-a.o);
+  const credDue=unpaidCredit().filter(s=>s.due_date&&s.due_date<=addDays(todayISO(),1));
   const target=Number(S.settings?.target||5);
   const prog=liveMarketers().map(m=>({m,n:sumQty(today.filter(s=>s.marketer_id===m.id))})).sort((a,b)=>b.n-a.n);
   const best=(arr,key)=>{const g={};arr.forEach(s=>{g[s[key]]=(g[s[key]]||0)+Number(s.qty)});const k=Object.keys(g).sort((a,b)=>g[b]-g[a])[0];return k?{k,n:g[k]}:null};
@@ -210,8 +213,9 @@ function renderHome(){
       <button class="qa" data-qa="addm">${icon.person}Add marketer</button>
     </div>
     <div class="wide">
-      ${(low.length||owing.length||!tracked)?`<div class="card"><h2>Needs attention</h2><div class="stack">
+      ${(low.length||owing.length||!tracked||credDue.length)?`<div class="card"><h2>Needs attention</h2><div class="stack">
         ${!tracked?`<div class="alert info"><span>📦</span><span><b>Set up your stock.</b> Tap <b>Stock in</b> and enter how many of each product you have, so the app can count what's left.</span></div>`:""}
+        ${credDue.map(s=>`<button class="alert" style="width:100%;text-align:left;border:0;font-weight:400;min-height:0" data-credit="${s.id}"><span>🧾</span><span><b>${esc(s.customer||"A customer")}</b> ${s.due_date<todayISO()?"was due to pay":"is due to pay"} ${cedi(s.qty*s.price)} ${s.due_date===todayISO()?"today":fmtDay(s.due_date,{weekday:"long"})}. Tap when paid.</span></button>`).join("")}
         ${low.map(p=>`<div class="alert"><span>⚠️</span><span><b>${esc(p.name)}</b> is low: ${Math.max(0,stockOf(p.id).total)} left.</span></div>`).join("")}
         ${owing.slice(0,3).map(x=>`<div class="alert info"><span>💰</span><span><b>${esc(x.m.name)}</b> owes ${cedi(x.o)}.</span></div>`).join("")}
       </div></div>`:""}
@@ -236,11 +240,12 @@ function renderHome(){
   r.querySelector('[data-qa="pay"]').onclick=()=>paymentSheet();
   r.querySelector('[data-qa="addm"]').onclick=()=>marketerForm();
   r.querySelectorAll("[data-open-m]").forEach(b=>b.onclick=()=>marketerPage(b.dataset.openM));
+  r.querySelectorAll("[data-credit]").forEach(b=>b.onclick=()=>creditPaidSheet(unpaidCredit().find(s=>String(s.id)===b.dataset.credit)));
   r.querySelectorAll("[data-go2]").forEach(b=>b.onclick=()=>{moneyTab=b.dataset.tab;go(b.dataset.go2)});
 }
 
 /* =================== SELL =================== */
-let sellForm={mid:store.get("inv-sell-m")||"",pid:store.get("inv-sell-p")||"",qty:1,price:null,method:"cash"};
+let sellForm={mid:store.get("inv-sell-m")||"",pid:store.get("inv-sell-p")||"",qty:1,price:null,method:"cash",customer:"",due:""};
 function renderSell(){
   const ms=liveMarketers(), ps=liveProducts();
   if(!ms.find(m=>m.id===sellForm.mid)) sellForm.mid=ms[0]?.id||"";
@@ -260,28 +265,36 @@ function renderSell(){
       <div class="f" style="display:flex;flex-direction:column;gap:6px"><span style="font-weight:700;font-size:.9rem">Product</span><div class="chips">${productChips(sellForm.pid)}</div></div>
       <div class="row between"><div><span style="font-weight:700;font-size:.9rem">How many?</span>${stepperHTML("sfQ",sellForm.qty)}</div>
         <label class="f" style="flex:0 1 160px">Price each (GH₵)<input id="sfPrice" type="number" min="0" step="0.5" inputmode="decimal" value="${sellForm.price??""}"></label></div>
-      <div><span style="font-weight:700;font-size:.9rem">Customer paid by</span><div class="seg" style="margin-top:6px"><button type="button" data-seg="meth" data-v="cash" aria-pressed="${sellForm.method==="cash"}">Cash</button><button type="button" data-seg="meth" data-v="momo" aria-pressed="${sellForm.method==="momo"}">MoMo</button></div></div>
-      <label class="f">Note (optional)<input id="sfNote" placeholder="e.g. customer name or place"></label>
+      <div><span style="font-weight:700;font-size:.9rem">Customer paid by</span><div class="seg" style="margin-top:6px"><button type="button" data-seg="meth" data-v="cash" aria-pressed="${sellForm.method==="cash"}">Cash</button><button type="button" data-seg="meth" data-v="momo" aria-pressed="${sellForm.method==="momo"}">MoMo</button><button type="button" data-seg="meth" data-v="credit" aria-pressed="${sellForm.method==="credit"}">Pay later</button></div></div>
+      <div class="stack" id="sfCredit" ${sellForm.method==="credit"?"":"hidden"}>
+        <label class="f">Customer's name and phone<input id="sfCust" value="${esc(sellForm.customer)}" placeholder="e.g. Police officer, Amasaman station, 024…"></label>
+        <label class="f">Promised to pay on<input id="sfDue" type="date" value="${sellForm.due||addDays(day,5)}"></label>
+      </div>
+      <label class="f">Note (optional)<input id="sfNote" placeholder="e.g. place of sale"></label>
       <div class="row between"><span class="muted">Total</span><span class="money-big" id="sfTotal">${cedi(sellForm.qty*(sellForm.price||0))}</span></div>
       ${h>0?`<p class="small muted">${esc(mName(sellForm.mid))} is holding ${h} of this product.</p>`:""}
       <button class="btn-primary btn-block" type="submit" id="sfBtn" style="min-height:54px;font-size:1.05rem">Record sale</button>
       <p class="small muted">Saves on ${day===todayISO()?"today's date":fmtDay(day,{day:"numeric",month:"long"})}. Change the date at the top to record an earlier day.</p>
     </form>
     <div class="card"><div class="row between"><h2>Sales ${day===todayISO()?"today":"on "+fmtDay(day)}</h2><span class="pill">${sumQty(list)} items · ${cedi(sumVal(list))}</span></div>
-      ${list.length?`<ul class="list">${list.map(s=>`<li><button class="item" data-sale="${s.id}"><span class="avatar">${esc(initials(mName(s.marketer_id)))}</span><span class="grow"><span class="t">${esc(mName(s.marketer_id))}</span><span class="s">${esc(pName(s))} × ${s.qty} · ${s.method==="momo"?"MoMo":"Cash"}${s.note?" · "+esc(s.note):""}</span></span><span class="r"><b>${cedi(s.qty*s.price)}</b><br><span class="small muted">Edit</span></span></button></li>`).join("")}</ul>`:`<p class="empty">No sales recorded yet.</p>`}
+      ${list.length?`<ul class="list">${list.map(s=>`<li><button class="item" data-sale="${s.id}"><span class="avatar">${esc(initials(mName(s.marketer_id)))}</span><span class="grow"><span class="t">${esc(mName(s.marketer_id))}</span><span class="s">${esc(pName(s))} × ${s.qty} · ${methodLabel(s)}${s.note?" · "+esc(s.note):""}</span></span><span class="r"><b>${cedi(s.qty*s.price)}</b><br><span class="small muted">Edit</span></span></button></li>`).join("")}</ul>`:`<p class="empty">No sales recorded yet.</p>`}
     </div></div>`;
   const total=()=>{$("sfTotal").textContent=cedi(sellForm.qty*(Number($("sfPrice").value)||0))};
   $("sfM").onchange=e=>{sellForm.mid=e.target.value;store.set("inv-sell-m",sellForm.mid);renderSell()};
   wireChips(r,"prod",v=>{sellForm.pid=v;store.set("inv-sell-p",v);sellForm.price=Number(P(v).price);renderSell()});
   stepper(r,"sfQ",1,v=>{sellForm.qty=v;total()});
   $("sfPrice").oninput=e=>{sellForm.price=Number(e.target.value);total()};
-  wireSeg(r,"meth",v=>sellForm.method=v);
+  wireSeg(r,"meth",v=>{sellForm.method=v;$("sfCredit").hidden=v!=="credit"});
+  $("sfCust").oninput=e=>sellForm.customer=e.target.value;
+  $("sfDue").onchange=e=>sellForm.due=e.target.value;
   $("saleForm").onsubmit=async e=>{
     e.preventDefault();
     const pr=P(sellForm.pid), price=Number($("sfPrice").value);
     if(!(price>=0)){toast("Enter the price.",true);return}
-    const ok=await run($("sfBtn"),"record the sale",()=>ins("sales",{day,marketer_id:sellForm.mid,product_id:pr.id,product_name:pr.name,qty:sellForm.qty,price,cost:Number(pr.cost||0),method:sellForm.method,note:$("sfNote").value.trim()}),`Sale recorded: ${sellForm.qty} × ${pr.name}`);
-    if(ok){sellForm.qty=1;sellForm.price=null;}
+    const credit=sellForm.method==="credit", cust=$("sfCust").value.trim();
+    if(credit&&!cust){toast("Enter the customer's name for a pay-later sale.",true);$("sfCust").focus();return}
+    const ok=await run($("sfBtn"),"record the sale",()=>ins("sales",{day,marketer_id:sellForm.mid,product_id:pr.id,product_name:pr.name,qty:sellForm.qty,price,cost:Number(pr.cost||0),method:sellForm.method,customer:credit?cust:"",due_date:credit?($("sfDue").value||null):null,note:$("sfNote").value.trim()}),credit?`Pay-later sale saved for ${cust}`:`Sale recorded: ${sellForm.qty} × ${pr.name}`);
+    if(ok){sellForm.qty=1;sellForm.price=null;sellForm.customer="";sellForm.due="";sellForm.method="cash"}
   };
   r.querySelectorAll("[data-sale]").forEach(b=>b.onclick=()=>saleEdit(S.sales.find(s=>String(s.id)===b.dataset.sale)));
 }
@@ -290,12 +303,17 @@ function saleEdit(s){
     <p class="muted">${esc(mName(s.marketer_id))} · ${esc(pName(s))} · ${fmtDay(s.day,{day:"numeric",month:"long"})}</p>
     <div class="row between"><div><span style="font-weight:700;font-size:.9rem">How many?</span>${stepperHTML("seQ",s.qty)}</div>
       <label class="f" style="flex:0 1 160px">Price each (GH₵)<input id="sePrice" type="number" min="0" step="0.5" value="${Number(s.price)}"></label></div>
-    <div class="seg"><button type="button" data-seg="sm" data-v="cash" aria-pressed="${s.method==="cash"}">Cash</button><button type="button" data-seg="sm" data-v="momo" aria-pressed="${s.method==="momo"}">MoMo</button></div>
+    <div class="seg"><button type="button" data-seg="sm" data-v="cash" aria-pressed="${s.method==="cash"}">Cash</button><button type="button" data-seg="sm" data-v="momo" aria-pressed="${s.method==="momo"}">MoMo</button><button type="button" data-seg="sm" data-v="credit" aria-pressed="${s.method==="credit"}">Pay later</button></div>
+    <div class="stack" id="seCredit" ${s.method==="credit"?"":"hidden"}>
+      <label class="f">Customer's name and phone<input id="seCust" value="${esc(s.customer)}"></label>
+      <label class="f">Promised to pay on<input id="seDue" type="date" value="${s.due_date||""}"></label>
+    </div>
     <label class="f">Note<input id="seNote" value="${esc(s.note)}"></label>
     <button class="btn-primary btn-block" id="seSave">Save changes</button>
     <button class="btn-danger btn-block" id="seDel">Delete this sale</button>`,root=>{
-    let method=s.method; stepper(root,"seQ",1); wireSeg(root,"sm",v=>method=v);
-    $("seSave").onclick=()=>run($("seSave"),"save the sale",()=>upd("sales",s.id,{qty:Number($("seQ").value),price:Number($("sePrice").value)||0,method,note:$("seNote").value.trim()}),"Sale updated");
+    let method=s.method; stepper(root,"seQ",1); wireSeg(root,"sm",v=>{method=v;$("seCredit").hidden=v!=="credit"});
+    $("seSave").onclick=()=>{const credit=method==="credit";if(credit&&!$("seCust").value.trim()){toast("Enter the customer's name.",true);return}
+      run($("seSave"),"save the sale",()=>upd("sales",s.id,{qty:Number($("seQ").value),price:Number($("sePrice").value)||0,method,customer:$("seCust").value.trim(),due_date:credit?($("seDue").value||null):s.due_date,paid_at:credit?null:(s.method==="credit"?new Date().toISOString():s.paid_at),note:$("seNote").value.trim()}),"Sale updated")};
     confirmBtn($("seDel"),"Tap again to delete",()=>run($("seDel"),"delete the sale",()=>del("sales",s.id),"Sale deleted"));
   });
 }
@@ -314,12 +332,13 @@ function renderStock(){
     </div>
     <div class="wide">
       ${ps.map(p=>{const s=stockOf(p.id);const low=s.tracked&&s.total<=Number(p.low_stock||0);return `
-      <button class="card" style="text-align:left;font-weight:400" data-prod-edit="${p.id}">
+      <div class="card">
         <div class="row between"><h2>${esc(p.name)}</h2>${!s.tracked?`<span class="pill off">not set up</span>`:low?`<span class="pill warn">low</span>`:`<span class="pill good">ok</span>`}</div>
         <div class="row between" style="align-items:flex-end"><div><div class="money-big">${s.tracked?Math.max(0,s.total):"–"}</div><span class="small muted">in stock</span></div>
         <div class="r small muted" style="text-align:right">In your store: <b class="num" style="color:var(--fg)">${s.tracked?s.store:"–"}</b><br>With marketers: <b class="num" style="color:var(--fg)">${s.withM}</b><br>Sold so far: <b class="num" style="color:var(--fg)">${s.sold}</b></div></div>
-        ${!s.tracked?`<p class="small muted">Tap Stock in to enter how many you have.</p>`:s.total<0?`<p class="small" style="color:var(--warn)">More sales than stock recorded. Add the missing stock with Stock in.</p>`:""}
-      </button>`}).join("")||`<div class="card"><p class="empty">No products yet. Add one in Settings.</p></div>`}
+        ${!s.tracked?`<p class="small muted">Tap Correct count and enter how many you have.</p>`:s.total<0?`<p class="small" style="color:var(--warn)">More sales than stock recorded. Tap Correct count.</p>`:""}
+        <div class="grid2"><button class="btn-primary" data-count="${p.id}">Correct count</button><button data-prod-edit="${p.id}">Edit product</button></div>
+      </div>`}).join("")||`<div class="card"><p class="empty">No products yet. Add one in Settings.</p></div>`}
       <div class="card"><h2>Who's holding stock</h2>
         ${holders.length?`<ul class="list">${holders.map(x=>`<li><button class="item" data-open-m="${x.m.id}"><span class="avatar">${esc(initials(x.m.name))}</span><span class="grow"><span class="t">${esc(x.m.name)}</span><span class="s">${x.h.map(h=>esc(h.p.name)+" × "+h.n).join(" · ")}</span></span><span class="r"><b>${x.h.reduce((t,h)=>t+h.n,0)}</b></span></button></li>`).join("")}</ul>`:`<p class="empty">No marketer is holding stock. Use "Give to marketer" when you hand over items.</p>`}
       </div>
@@ -330,6 +349,7 @@ function renderStock(){
   r.querySelectorAll("[data-sk]").forEach(b=>b.onclick=()=>stockSheet(b.dataset.sk));
   r.querySelectorAll("[data-open-m]").forEach(b=>b.onclick=()=>marketerPage(b.dataset.openM));
   r.querySelectorAll("[data-prod-edit]").forEach(b=>b.onclick=()=>productForm(P(b.dataset.prodEdit)));
+  r.querySelectorAll("[data-count]").forEach(b=>b.onclick=()=>countSheet(P(b.dataset.count)));
   r.querySelectorAll("[data-move]").forEach(b=>b.onclick=()=>moveSheet(S.moves.find(m=>String(m.id)===b.dataset.move)));
 }
 function stockSheet(kind,mid){
@@ -359,8 +379,33 @@ function stockSheet(kind,mid){
     };
   });
 }
+function countSheet(p){
+  const s=stockOf(p.id);
+  openSheet("Correct the count",`
+    <p><b>${esc(p.name)}</b>: the app thinks you have <b>${s.tracked?s.total:"no stock recorded"}</b>${s.withM?` (including ${s.withM} with marketers)`:""}.</p>
+    <label class="f">How many do you actually have right now? (store + with marketers)<input id="ccN" type="number" min="0" step="1" inputmode="numeric" placeholder="e.g. 10"></label>
+    <p class="small" id="ccDiff"></p>
+    <label class="f">Reason (optional)<input id="ccNote" placeholder="e.g. counted at home, 2 missing"></label>
+    <button class="btn-primary btn-block" id="ccBtn">Save count</button>
+    <p class="small muted">This adds a correction entry. Sales and other entries stay as they are.</p>`,()=>{
+    const diff=()=>{const v=$("ccN").value;if(v===""){$("ccDiff").textContent="";return null}const d=Math.round(Number(v))-s.total;$("ccDiff").textContent=d===0?"That matches. Nothing to change.":d>0?`${d} more than recorded. The app will add ${d}.`:`${-d} fewer than recorded. The app will take off ${-d}.`;return d};
+    $("ccN").oninput=diff; $("ccN").focus();
+    $("ccBtn").onclick=()=>{const d=diff();if(d==null){toast("Enter how many you have.",true);return}if(d===0){closeSheet();return}
+      run($("ccBtn"),"save the count",()=>ins("stock_moves",{day,product_id:p.id,kind:"adjust",marketer_id:null,qty:d,unit_cost:null,note:$("ccNote").value.trim()||("Counted "+$("ccN").value+" in hand")}),"Count corrected")};
+  });
+}
 function moveSheet(mv){
-  openSheet("Stock movement",`<p>${{in:"Stock in",out:"Given to "+esc(mName(mv.marketer_id)),return:"Returned by "+esc(mName(mv.marketer_id)),adjust:"Count corrected"}[mv.kind]}: <b>${mv.qty}</b> × ${esc(P(mv.product_id)?.name||"Product")}</p><p class="muted">${fmtDay(mv.day,{day:"numeric",month:"long",year:"numeric"})}${mv.unit_cost?" · "+cedi(mv.unit_cost)+" each":""}${mv.note?" · "+esc(mv.note):""}</p><button class="btn-danger btn-block" id="mvDel">Delete this entry</button>`,()=>{
+  const label={in:"Stock in",out:"Given to "+esc(mName(mv.marketer_id)),return:"Returned by "+esc(mName(mv.marketer_id)),adjust:"Count correction"}[mv.kind];
+  openSheet("Edit stock entry",`
+    <p><b>${label}</b> · ${esc(P(mv.product_id)?.name||"Product")} · ${fmtDay(mv.day,{day:"numeric",month:"long",year:"numeric"})}</p>
+    <label class="f">${mv.kind==="adjust"?"Change (use minus for fewer, e.g. -2)":"How many"}<input id="mvQ" type="number" step="1" inputmode="numeric" value="${mv.qty}"></label>
+    ${mv.kind==="in"?`<label class="f">Cost each (GH₵, optional)<input id="mvC" type="number" min="0" step="0.5" value="${mv.unit_cost??""}"></label>`:""}
+    <label class="f">Note<input id="mvN" value="${esc(mv.note)}"></label>
+    <button class="btn-primary btn-block" id="mvSave">Save changes</button>
+    <button class="btn-danger btn-block" id="mvDel">Delete this entry</button>`,()=>{
+    $("mvSave").onclick=()=>{const q=Math.round(Number($("mvQ").value));if(!q||(mv.kind!=="adjust"&&q<0)){toast("Enter a valid number.",true);return}
+      const row={qty:q,note:$("mvN").value.trim()};if(mv.kind==="in")row.unit_cost=Number($("mvC").value)||null;
+      run($("mvSave"),"save the entry",()=>upd("stock_moves",mv.id,row),"Entry updated")};
     confirmBtn($("mvDel"),"Tap again to delete",()=>run($("mvDel"),"delete the entry",()=>del("stock_moves",mv.id),"Entry deleted"));
   });
 }
@@ -467,7 +512,7 @@ function marketerPage(mid){
       <button id="mpOut">Pay out savings</button>
     </div>
     ${hs.length?`<div><div class="eyebrow">Holding</div><ul class="list">${hs.map(x=>`<li><div class="item"><span class="grow t">${esc(x.p.name)}</span><span class="r"><b>${x.n}</b></span></div></li>`).join("")}</ul></div>`:""}
-    <div><div class="eyebrow">Recent sales</div>${recentSales.length?`<ul class="list">${recentSales.map(s=>`<li><div class="item"><span class="grow"><span class="t">${esc(pName(s))} × ${s.qty}</span><span class="s">${fmtDay(s.day)} · ${s.method==="momo"?"MoMo":"Cash"}</span></span><span class="r">${cedi(s.qty*s.price)}</span></div></li>`).join("")}</ul>`:`<p class="empty">No sales yet.</p>`}</div>
+    <div><div class="eyebrow">Recent sales</div>${recentSales.length?`<ul class="list">${recentSales.map(s=>`<li><div class="item"><span class="grow"><span class="t">${esc(pName(s))} × ${s.qty}</span><span class="s">${fmtDay(s.day)} · ${methodLabel(s)}</span></span><span class="r">${cedi(s.qty*s.price)}</span></div></li>`).join("")}</ul>`:`<p class="empty">No sales yet.</p>`}</div>
     <div><div class="eyebrow">Money received</div>${pays.length?`<ul class="list">${pays.map(p=>`<li><div class="item"><span class="grow"><span class="t">${cedi(p.amount)}</span><span class="s">${fmtDay(p.day)} · ${p.method==="momo"?"MoMo":"Cash"}${p.note?" · "+esc(p.note):""}</span></span></div></li>`).join("")}</ul>`:`<p class="empty">None yet.</p>`}</div>
     <div><div class="eyebrow">Savings</div>${savs.length?`<ul class="list">${savs.map(s=>`<li><div class="item"><span class="grow"><span class="t">${s.amount<0?"Paid out":"Saved"}</span><span class="s">${fmtDay(s.day)}${s.note?" · "+esc(s.note):""}</span></span><span class="r" style="color:${s.amount<0?"var(--warn)":"var(--good)"}">${s.amount<0?"−":"+"}${cedi(Math.abs(s.amount))}</span></div></li>`).join("")}</ul>`:`<p class="empty">None yet.</p>`}</div>
     ${m.removed_at?`<button class="btn-primary btn-block" id="mpBack">Bring back to the team</button>`:`<button class="btn-danger btn-block" id="mpRemove">Remove ${esc(m.name)} from team</button>`}`,()=>{
@@ -517,9 +562,16 @@ function savingsSheet(mid,out){
 }
 function renderMoney(){
   const r=$("scr-money");
-  const tabs=[["owed","Owed"],["savings","Savings"],["profit","Profit"],["reports","Reports"]];
+  const tabs=[["owed","Marketers"],["customers","Customers"],["savings","Savings"],["profit","Profit"],["reports","Reports"]];
   let body="";
-  if(moneyTab==="owed"){
+  if(moneyTab==="customers"){
+    const list=unpaidCredit(), total=list.reduce((t,s)=>t+s.qty*s.price,0), today=todayISO();
+    body=`<div class="card"><div><div class="money-big">${cedi(total)}</div><span class="small muted">customers owe you for pay-later sales</span></div>
+      ${list.length?`<ul class="list">${list.map(s=>{const late=s.due_date&&s.due_date<today, dueToday=s.due_date===today;return `<li><button class="item" data-credit="${s.id}"><span class="grow"><span class="t">${esc(s.customer||"Customer")}</span><span class="s">${esc(pName(s))} × ${s.qty} · sold ${fmtDay(s.day)} by ${esc(mName(s.marketer_id))}</span>
+        <span class="row" style="gap:6px;margin-top:4px">${s.due_date?`<span class="pill ${late?"warn":dueToday?"good":""}">${late?"late, was due ":dueToday?"due today, ":"due "}${fmtDay(s.due_date,{weekday:"short",day:"numeric",month:"short"})}</span>`:""}</span></span>
+        <span class="r"><b>${cedi(s.qty*s.price)}</b><br><span class="small muted">Mark paid</span></span></button></li>`}).join("")}</ul>`:`<p class="empty">No customer owes you. Choose <b>Pay later</b> when you record a sale on credit.</p>`}
+    </div>`;
+  }else if(moneyTab==="owed"){
     const rows=S.marketers.map(m=>({m,...moneyOf(m.id)})).filter(x=>x.owes>0.009).sort((a,b)=>b.owes-a.owes);
     const total=rows.reduce((t,x)=>t+x.owes,0);
     const recent=S.payments.slice().sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,15);
@@ -570,9 +622,25 @@ function renderMoney(){
   $("svAdd")&&($("svAdd").onclick=()=>savingsSheet(null,false));
   $("svOut")&&($("svOut").onclick=()=>savingsSheet(null,true));
   r.querySelectorAll("[data-pay]").forEach(b=>b.onclick=()=>paymentSheet(b.dataset.pay));
+  r.querySelectorAll("[data-credit]").forEach(b=>b.onclick=()=>creditPaidSheet(unpaidCredit().find(s=>String(s.id)===b.dataset.credit)));
   r.querySelectorAll("[data-open-m]").forEach(b=>b.onclick=()=>marketerPage(b.dataset.openM));
   r.querySelectorAll("[data-paydel]").forEach(b=>b.onclick=()=>{const p=S.payments.find(x=>String(x.id)===b.dataset.paydel);
     openSheet("Payment",`<p>${esc(mName(p.marketer_id))} paid <b>${cedi(p.amount)}</b> by ${p.method==="momo"?"MoMo":"cash"} on ${fmtDay(p.day,{day:"numeric",month:"long"})}.</p>${p.note?`<p class="muted">${esc(p.note)}</p>`:""}<button class="btn-danger btn-block" id="pdDel">Delete this payment</button>`,()=>confirmBtn($("pdDel"),"Tap again to delete",()=>run($("pdDel"),"delete the payment",()=>del("payments",p.id),"Payment deleted")))});
+}
+
+function creditPaidSheet(s){
+  let method="cash";
+  openSheet("Customer paid?",`
+    <p><b>${esc(s.customer||"Customer")}</b> owes <b>${cedi(s.qty*s.price)}</b> for ${esc(pName(s))} × ${s.qty}, sold ${fmtDay(s.day,{day:"numeric",month:"long"})}${s.due_date?`, promised for ${fmtDay(s.due_date,{weekday:"long",day:"numeric",month:"long"})}`:""}.</p>
+    <span style="font-weight:700;font-size:.9rem">Paid by</span>
+    <div class="seg"><button type="button" data-seg="cp" data-v="cash" aria-pressed="true">Cash</button><button type="button" data-seg="cp" data-v="momo" aria-pressed="false">MoMo</button></div>
+    <button class="btn-primary btn-block" id="cpBtn">Mark as paid</button>
+    <button class="btn-ghost btn-block" id="cpEdit">Edit this sale</button>
+    <p class="small muted">Once paid, the money counts with ${esc(mName(s.marketer_id))}'s sales, to be handed in as usual.</p>`,root=>{
+    wireSeg(root,"cp",v=>method=v);
+    $("cpBtn").onclick=()=>run($("cpBtn"),"mark the sale as paid",()=>upd("sales",s.id,{method,paid_at:new Date().toISOString()}),`${s.customer||"Customer"} paid`);
+    $("cpEdit").onclick=()=>saleEdit(s);
+  });
 }
 
 /* =================== SETTINGS =================== */
