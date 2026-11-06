@@ -5,709 +5,93 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#9c6f0a">
+<meta name="theme-color" content="#13120e" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f5f3ec" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="MOZLYT Stock">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>MOZLYT Inventory</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
-<style>
-:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-body{margin:0}
-[hidden]{display:none!important}
-
-/* Layout: login card, then phone = one column (totals, tabs, roster rows with − / +). Desktop = wide page, roster in two columns, Month and Setup cards side by side. Gold on warm ink, like the MOZLYT mark. Records live in Neon behind a login. */
-:root{
-  --bg:#f5f3ec; --surface:#ffffff; --fg:#1b1a16; --muted:#6a6556; --line:#e3ddcc;
-  --accent:#9c6f0a; --accent-soft:#f2e6c4; --good:#2f7a4a; --warn:#b4541f;
-  --display:"Familjen Grotesk",system-ui,sans-serif;
-  --body:"Atkinson Hyperlegible",system-ui,sans-serif;
-}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#13120e; --surface:#1d1b16; --fg:#f0ebdf; --muted:#a49d8b; --line:#353228;
-  --accent:#e0b03c; --accent-soft:#3a3120; --good:#62c084; --warn:#ec8c58; color-scheme:dark}}
-:root[data-theme="dark"]{
-  --bg:#13120e; --surface:#1d1b16; --fg:#f0ebdf; --muted:#a49d8b; --line:#353228;
-  --accent:#e0b03c; --accent-soft:#3a3120; --good:#62c084; --warn:#ec8c58; color-scheme:dark}
-*{box-sizing:border-box}
-body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.45}
-.wrap{max-width:620px;margin:0 auto;padding-block:20px 110px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px}
-h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0}
-h1{font-size:1.85rem;line-height:1.1}
-h2{font-size:1.15rem}
-.eyebrow{font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.note{font-size:.88rem;color:var(--muted);margin:0}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.between{justify-content:space-between}
-.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.stat{background:var(--bg);border-radius:10px;padding:10px 12px;min-width:0}
-.stat b{display:block;font-family:var(--display);font-size:1.6rem;font-variant-numeric:tabular-nums;line-height:1.1}
-.stat span{font-size:.82rem;color:var(--muted)}
-input,select,textarea{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 11px;min-width:0}
-input[type=date]{min-height:44px}
-textarea{width:100%;min-height:96px;resize:vertical}
-button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--fg);min-height:44px;padding:0 14px}
-button.primary{background:var(--accent);border-color:var(--accent);color:var(--surface);font-weight:700}
-button.ghost{background:transparent}
-button:disabled{opacity:.5;cursor:default}
-button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.grow{flex:1 1 160px}
-.tabs{display:flex;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px}
-.tabs button{flex:1;border:0;background:transparent;font-weight:700;color:var(--muted)}
-.tabs button[aria-selected="true"]{background:var(--accent-soft);color:var(--fg)}
-ul.roster{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-ul.roster>li{border-top:1px solid var(--line);min-width:0}
-ul.roster>li:first-child{border-top:0}
-.m{display:grid;grid-template-columns:2.2em minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px}
-.num{color:var(--muted);font-variant-numeric:tabular-nums;font-size:.85rem}
-.who{min-width:0}
-.who .nm{all:unset;cursor:pointer;font-weight:700;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.who .nm:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
-.who small{display:block;color:var(--muted);font-size:.8rem;font-variant-numeric:tabular-nums}
-.who .savebtn{all:unset;cursor:pointer;display:inline-block;margin-top:3px;font-size:.8rem;font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}
-.who .savebtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
-.ctr{display:flex;align-items:center;gap:6px}
-.ctr button{width:44px;padding:0;font-size:1.3rem;font-weight:700}
-.ctr b{font-family:var(--display);font-size:1.4rem;min-width:2ch;text-align:center;font-variant-numeric:tabular-nums}
-.pill{font-size:.75rem;padding:2px 8px;border-radius:99px;background:var(--accent-soft);white-space:nowrap}
-.pill.hit{background:color-mix(in srgb,var(--good) 20%,transparent)}
-.pill.off{background:color-mix(in srgb,var(--muted) 18%,transparent)}
-.detail{padding:0 12px 14px calc(2.2em + 22px);display:flex;flex-direction:column;gap:10px}
-.detail .row input{flex:1 1 140px}
-.mini{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-.mini div{background:var(--bg);border-radius:8px;padding:8px;min-width:0}
-.mini b{display:block;font-variant-numeric:tabular-nums}
-.mini span{font-size:.78rem;color:var(--muted)}
-.savings{background:var(--bg);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px}
-.savings .bal{font-family:var(--display);font-size:1.3rem;font-weight:700;font-variant-numeric:tabular-nums}
-table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
-.tbl{overflow-x:auto}
-th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
-th{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
-td.r,th.r{text-align:right}
-.status{font-size:.88rem;padding:10px 12px;border-radius:10px;background:var(--accent-soft);display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between}
-.status.bad{background:color-mix(in srgb,var(--warn) 18%,transparent)}
-.empty{padding:24px 16px;text-align:center;color:var(--muted)}
-details.more summary{cursor:pointer;font-weight:700;list-style:none}
-details.more summary::-webkit-details-marker{display:none}
-details.more summary::after{content:" +";color:var(--accent)}
-details.more[open] summary::after{content:" −"}
-.chips{display:flex;flex-wrap:wrap;gap:8px}
-.chips button{border-radius:99px;min-height:40px}
-.chips button[aria-checked="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface);font-weight:700}
-.chips button small{font-weight:400;opacity:.85}
-ul.plist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-ul.plist li{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-ul.plist li input[type=text]{flex:1 1 150px}
-ul.plist li input[type=number]{width:110px}
-.view{display:flex;flex-direction:column;gap:12px}
-.cols{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start}
-.savebar{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--surface);border-top:1px solid var(--line);padding-block:10px calc(10px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-.savebar .in{max-width:620px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px}
-.savebar button{min-width:120px}
-.ok{color:var(--good);font-weight:700}
-.bad{color:var(--warn);font-weight:700}
-.src{font-size:.78rem;color:var(--muted)}
-@media (min-width:520px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}}
-@media (min-width:960px){
-  .wrap,.savebar .in{max-width:1180px}
-  h1{font-size:2.3rem}
-  .tabs{max-width:560px}
-  ul.roster{grid-template-columns:repeat(2,minmax(0,1fr))}
-  ul.roster>li{border-top:1px solid var(--line)}
-  ul.roster>li:nth-child(-n+2){border-top:0}
-  ul.roster>li:nth-child(odd){border-right:1px solid var(--line)}
-  ul.roster>li.empty{grid-column:1/-1;border-right:0}
-  .cols{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .cols .span{grid-column:1/-1}
-  #dayList{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
-  #dayList>.note,#dayList>.empty{grid-column:1/-1}
-}
-
-.login{max-width:440px;width:100%;gap:10px}
-.login label{font-weight:700;font-size:.9rem}
-.login input{width:100%;min-height:44px}
-.login .primary{margin-top:6px}
-#loginView,#lockedView{max-width:480px}
-
-</style>
+<link rel="stylesheet" href="app.css?v=2">
 </head>
 <body>
-<div class="wrap" id="loginView">
-  <header>
-    <div class="eyebrow">MOZLYT · Inventory</div>
-    <h1>Sales Team</h1>
-  </header>
-  <form class="card login" id="loginForm" autocomplete="on">
-    <h2 id="loginTitle">Sign in</h2>
-    <p class="note" id="loginIntro">This dashboard is private. Sign in with your MOZLYT account.</p>
-    <label for="lgEmail">Email</label>
-    <input id="lgEmail" type="email" autocomplete="username" required>
-    <div id="nameRow" hidden>
-      <label for="lgName">Your name</label>
-      <input id="lgName" type="text" autocomplete="name">
-    </div>
-    <label for="lgPass">Password</label>
-    <input id="lgPass" type="password" autocomplete="current-password" minlength="8" required>
-    <button class="primary" type="submit" id="lgBtn">Sign in</button>
-    <p class="note" id="lgMsg" role="status"></p>
-    <button type="button" class="ghost" id="lgSwitch">First time here? Create your account</button>
+
+<!-- ============ SIGN IN ============ -->
+<section class="gate" id="loginView" hidden>
+  <form class="card" id="loginForm" autocomplete="on">
+    <div class="brand"><img src="icons/icon-192.png" alt=""><div><div class="eyebrow">MOZLYT</div><h1>Inventory</h1></div></div>
+    <p class="muted">Private. Sign in with your MOZLYT account.</p>
+    <label class="f">Email<input id="lgEmail" type="email" autocomplete="username" required></label>
+    <label class="f">Password<input id="lgPass" type="password" autocomplete="current-password" minlength="8" required></label>
+    <button class="btn-primary btn-block" type="submit" id="lgBtn">Sign in</button>
+    <p class="small muted" id="lgMsg" role="status"></p>
   </form>
-</div>
+</section>
 
-<div class="wrap" id="lockedView" hidden>
-  <header>
-    <div class="eyebrow">MOZLYT · Inventory</div>
-    <h1>Sales Team</h1>
-  </header>
+<section class="gate" id="lockedView" hidden>
   <div class="card">
+    <div class="brand"><img src="icons/icon-192.png" alt=""><div><div class="eyebrow">MOZLYT</div><h1>Inventory</h1></div></div>
     <h2>Waiting for approval</h2>
-    <p>You're signed in as <b id="lockedEmail"></b>, but this account hasn't been approved to see the records yet.</p>
-    <p class="note">The owner approves accounts. Once approved, tap Check again.</p>
-    <div class="row"><button class="primary" type="button" id="lockedRetry">Check again</button><button type="button" class="ghost" id="lockedOut">Sign out</button></div>
+    <p>You're signed in as <b id="lockedEmail"></b>, but this account hasn't been approved to see the records.</p>
+    <div class="row"><button class="btn-primary" type="button" id="lockedRetry">Check again</button><button class="btn-ghost" type="button" id="lockedOut">Sign out</button></div>
   </div>
-</div>
+</section>
 
-<div class="wrap" id="appView" hidden>
-  <header class="row between" style="align-items:flex-end">
-    <div>
-      <div class="eyebrow">MOZLYT · Product sales</div>
-      <h1>Sales Team</h1>
-    </div>
-    <div class="row">
-      <button type="button" class="ghost" id="refresh">Refresh</button>
-      <button type="button" class="ghost" id="signOut">Sign out</button>
-      <input type="date" id="day" aria-label="Day being recorded">
+<section class="gate" id="bootView">
+  <div class="card" style="align-items:center;text-align:center">
+    <img src="icons/icon-192.png" alt="" width="64" height="64" style="border-radius:16px">
+    <p class="muted" id="bootMsg">Opening MOZLYT Inventory…</p>
+  </div>
+</section>
+
+<!-- ============ APP ============ -->
+<div class="shell" id="appView" hidden>
+  <header class="topbar">
+    <div class="in">
+      <h1 id="screenTitle">Home</h1>
+      <label class="datechip btn-ghost" style="border:1px solid var(--line)" title="Change the working date">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+        <span id="dateLabel">Today</span>
+        <input type="date" id="day" aria-label="Working date">
+      </label>
+      <button class="btn-icon btn-ghost" id="refreshBtn" aria-label="Refresh"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
+      <button class="btn-icon btn-ghost" id="settingsBtn" aria-label="Settings"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
     </div>
   </header>
 
-  <div id="status" class="status" hidden><span id="statusText"></span><button type="button" id="statusBtn" hidden>Try again</button></div>
+  <main>
+    <div id="banner" class="banner" hidden><span id="bannerText"></span><button class="btn-ghost" id="bannerBtn">Try again</button></div>
+    <section class="screen" id="scr-home"></section>
+    <section class="screen" id="scr-sell" hidden></section>
+    <section class="screen" id="scr-stock" hidden></section>
+    <section class="screen" id="scr-team" hidden></section>
+    <section class="screen" id="scr-money" hidden></section>
+  </main>
 
-  <section class="card" aria-label="Totals">
-    <div class="stats">
-      <div class="stat"><b id="sDayUnits">0</b><span id="sDayLabel">items sold today</span></div>
-      <div class="stat"><b id="sDayCash">GH₵0</b><span>money in that day</span></div>
-      <div class="stat"><b id="sMonthUnits">0</b><span id="sMonthLabel">items this month</span></div>
-      <div class="stat"><b id="sSaved">GH₵0</b><span>savings collected that day</span></div>
+  <nav class="nav" aria-label="Main">
+    <div class="in">
+      <button data-go="home" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+      <button data-go="stock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Stock</button>
+      <button data-go="sell" class="sell"><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg></span>Sell</button>
+      <button data-go="team"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 14.5a5 5 0 0 1 5.5 5.5"/></svg>Team</button>
+      <button data-go="money"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="13" rx="2"/><circle cx="12" cy="12.5" r="2.5"/><path d="M6 10v5M18 10v5"/></svg>Money</button>
     </div>
-    <p class="src" id="src">Signed in.</p>
-  </section>
-
-  <div class="tabs" role="tablist">
-    <button role="tab" id="tabRecord" aria-selected="true">Record</button>
-    <button role="tab" id="tabDays" aria-selected="false">Days</button>
-    <button role="tab" id="tabBoard" aria-selected="false">Month</button>
-    <button role="tab" id="tabSetup" aria-selected="false">Setup</button>
-  </div>
-
-  <!-- RECORD -->
-  <section id="viewRecord" class="view">
-    <div class="card" style="gap:8px">
-      <div class="eyebrow">Recording sales of</div>
-      <div class="chips" id="prodPick" role="radiogroup" aria-label="Product being recorded"></div>
-    </div>
-    <div class="row">
-      <input id="search" class="grow" type="search" placeholder="Search marketer by name or number" aria-label="Search marketers">
-      <select id="sort" aria-label="Sort">
-        <option value="no">By number</option>
-        <option value="name">A to Z</option>
-        <option value="day">Most sold that day</option>
-      </select>
-    </div>
-    <ul class="roster" id="roster"><li class="empty">Loading your team…</li></ul>
-    <p class="note" id="rosterNote"></p>
-  </section>
-
-  <!-- DAYS -->
-  <section id="viewDays" class="view" hidden>
-    <div class="row between">
-      <h2 id="daysTitle">Daily records</h2>
-      <input type="month" id="dmonth" aria-label="Month to show">
-    </div>
-    <div id="dayList" style="display:flex;flex-direction:column;gap:10px"></div>
-  </section>
-
-  <!-- BOARD -->
-  <section id="viewBoard" class="view" hidden>
-    <div class="cols">
-      <div class="card span">
-        <div class="row between">
-          <h2 id="boardTitle">This month</h2>
-          <input type="month" id="month" aria-label="Month">
-        </div>
-        <div class="tbl"><table>
-          <thead><tr><th>#</th><th>Marketer</th><th class="r">Items</th><th class="r">Days</th><th class="r">Sales GH₵</th><th class="r" id="thPay">Pay GH₵</th></tr></thead>
-          <tbody id="board"></tbody>
-          <tfoot id="boardFoot"></tfoot>
-        </table></div>
-      </div>
-      <div class="card">
-        <h2>Savings balances</h2>
-        <div class="tbl"><table>
-          <thead><tr><th>Marketer</th><th class="r">Saved this month</th><th class="r">Balance GH₵</th></tr></thead>
-          <tbody id="saveBoard"></tbody>
-        </table></div>
-      </div>
-      <div class="card">
-        <h2>By product</h2>
-        <div class="tbl"><table>
-          <thead><tr><th>Product</th><th class="r">Sold</th><th class="r">Sales GH₵</th></tr></thead>
-          <tbody id="prodBoard"></tbody>
-        </table></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- SETUP -->
-  <section id="viewSetup" class="view" hidden>
-    <div class="cols">
-      <div class="card span">
-        <h2>Products and prices</h2>
-        <ul class="plist" id="plist"></ul>
-        <form id="addProd" class="row">
-          <input id="pName" class="grow" placeholder="Product name, e.g. Mini massage gun" required aria-label="New product name">
-          <input id="pPrice" type="number" min="0" step="0.5" placeholder="Price GH₵" required aria-label="New product price" style="width:120px">
-          <button class="primary" type="submit">Add product</button>
-        </form>
-        <p class="note">Each sale keeps the price it was recorded at, so changing a price later won't rewrite past days.</p>
-      </div>
-
-      <form class="card" id="addOne">
-        <h2>Add a marketer</h2>
-        <div class="row">
-          <input id="newName" class="grow" placeholder="Name" required aria-label="Marketer name">
-          <input id="newPhone" class="grow" placeholder="Phone (optional)" inputmode="tel" aria-label="Phone">
-        </div>
-        <div class="row">
-          <input id="newArea" class="grow" placeholder="Area, e.g. Amasaman (optional)" aria-label="Area">
-          <button class="primary" type="submit">Add</button>
-        </div>
-      </form>
-
-      <form class="card" id="addMany">
-        <h2>Add many at once</h2>
-        <p class="note">One marketer per line. Put a comma after the name to add a phone number: <i>Kofi Mensah, 0241234567</i></p>
-        <textarea id="manyNames" aria-label="Marketer list" placeholder="Ama Owusu, 0541112233&#10;Yaw Boateng&#10;Efua Asante, 0207654321"></textarea>
-        <div class="row between"><span class="note" id="manyCount">0 names</span><button class="primary" type="submit">Add all</button></div>
-      </form>
-
-      <form class="card span" id="settings">
-        <h2>Targets and pay</h2>
-        <div class="row">
-          <label class="grow">Daily target per marketer (items)<br><input id="setTarget" type="number" min="1" step="1" style="width:100%"></label>
-          <label class="grow">Marketer pay per item (GH₵)<br><input id="setPay" type="number" min="0" step="0.5" style="width:100%"></label>
-        </div>
-        <p class="note">Leave pay at 0 to hide the pay column.</p>
-        <div class="row"><button class="primary" type="submit">Save</button><span class="note" id="setMsg"></span></div>
-      </form>
-    </div>
-  </section>
+  </nav>
 </div>
 
+<dialog class="sheet" id="sheet">
+  <div class="grab"></div>
+  <div class="head"><h2 id="sheetTitle"></h2><button class="btn-icon btn-ghost" id="sheetClose" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div class="body" id="sheetBody"></div>
+</dialog>
 
-<div class="savebar" id="saveBar" hidden>
-  <div class="in">
-    <span id="saveState" class="note">Every tap saves on its own.</span>
-    <button type="button" class="primary" id="saveBtn">Save</button>
-  </div>
-</div>
+<div class="toast" id="toast" role="status" hidden></div>
 
-
-<script>
-const $=id=>document.getElementById(id);
-const TZ="Africa/Accra";
-const AUTH="https://ep-jolly-fire-bc7cxdj3.neonauth.c-16.us-east-1.aws.neon.tech/mozlyt/auth";
-const REST="https://ep-jolly-fire-bc7cxdj3.apirest.c-16.us-east-1.aws.neon.tech/mozlyt/rest/v1";
-const todayISO=()=>new Date().toLocaleDateString("en-CA",{timeZone:TZ});
-const money=n=>"GH₵"+Math.round(Number(n)||0).toLocaleString();
-const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const fmtDay=(d,o)=>new Date(d+"T12:00").toLocaleDateString("en-GB",o);
-const newId=()=>Array.from(crypto.getRandomValues(new Uint8Array(10)),b=>"abcdefghijklmnopqrstuvwxyz0123456789"[b%36]).join("");
-const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}}};
-
-/* =========================================================
-   Sign-in (Neon Auth). The session cookie is kept by the browser;
-   the session token is also kept so it can be sent as a Bearer
-   header where the browser blocks cross-site cookies.
-   ========================================================= */
-let session=store.get("inv-session")||null;   // opaque session token
-let jwt=null, jwtExp=0, me=null;
-
-class AuthError extends Error{constructor(msg,status){super(msg);this.status=status}}
-async function authFetch(path,opts={}){
-  const headers={"Content-Type":"application/json",...(opts.headers||{})};
-  if(session) headers.Authorization="Bearer "+session;
-  const res=await fetch(AUTH+path,{method:opts.method||"GET",headers,credentials:"include",body:opts.body?JSON.stringify(opts.body):undefined});
-  const tok=res.headers.get("set-auth-token"); if(tok){session=tok;store.set("inv-session",tok)}
-  let data=null; try{data=await res.json()}catch(e){}
-  if(!res.ok){
-    const code=data?.code||"", m=data?.message||"";
-    throw new AuthError(m||code||("HTTP "+res.status),res.status);
-  }
-  return {data,res};
-}
-function decodeJwt(t){try{return JSON.parse(atob(t.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")))}catch(e){return null}}
-async function getJwt(force){
-  if(!force && jwt && Date.now()<jwtExp-60000) return jwt;
-  let t=null;
-  try{const {data}=await authFetch("/token");t=data?.token||null}catch(e){if(e.status===401)throw e}
-  if(!t){const {data,res}=await authFetch("/get-session");t=res.headers.get("set-auth-jwt")||data?.session?.token||null;if(data?.user)me=data.user}
-  if(!t) throw new AuthError("Not signed in",401);
-  const p=decodeJwt(t); jwt=t; jwtExp=(p?.exp||0)*1000||Date.now()+10*60000;
-  if(p&&!me) me={email:p.email,name:p.name,id:p.sub};
-  return jwt;
-}
-async function signIn(email,password){
-  const {data}=await authFetch("/sign-in/email",{method:"POST",body:{email,password}});
-  if(data?.token){session=data.token;store.set("inv-session",data.token)}
-  me=data?.user||null; jwt=null; return getJwt(true);
-}
-async function signUp(name,email,password){
-  const {data}=await authFetch("/sign-up/email",{method:"POST",body:{name:name||email.split("@")[0],email,password,callbackURL:location.origin+location.pathname}});
-  if(data?.token){session=data.token;store.set("inv-session",data.token)}
-  me=data?.user||null; jwt=null; return getJwt(true);
-}
-async function signOut(){
-  try{await authFetch("/sign-out",{method:"POST",body:{}})}catch(e){}
-  session=null;store.set("inv-session",null);jwt=null;me=null;
-  location.reload();
-}
-
-/* =========================================================
-   Data (Neon Data API). Row-level security in the database
-   lets only approved accounts read or change anything.
-   ========================================================= */
-class DataError extends Error{constructor(msg,status){super(msg);this.status=status}}
-async function api(path,{method="GET",body,prefer}={}){
-  let token=await getJwt();
-  const go=t=>fetch(REST+path,{method,headers:{"Authorization":"Bearer "+t,"Content-Type":"application/json",...(prefer?{"Prefer":prefer}:{})},body:body!==undefined?JSON.stringify(body):undefined});
-  let res=await go(token);
-  if(res.status===401){token=await getJwt(true);res=await go(token)}
-  const text=await res.text(); let data=null; try{data=text?JSON.parse(text):null}catch(e){data=text}
-  if(!res.ok) throw new DataError((data&&data.message)||("HTTP "+res.status),res.status);
-  return data;
-}
-const enc=encodeURIComponent;
-
-/* ---------- state ---------- */
-let marketers=[], products=[], sales={}, savings=[], balances={}, recent={};
-let cfg={target:5,pay:0};
-let curProd=store.get("st-prod");
-let openId=null, focusSave=null;
-let day=todayISO(), month=day.slice(0,7);
-let loaded=false;
-$("day").value=day; $("month").value=month; $("dmonth").value=month;
-
-function showStatus(t,opts={}){
-  const s=$("status");$("statusText").textContent=t||"";s.hidden=!t;s.classList.toggle("bad",!!opts.bad);
-  const b=$("statusBtn");b.hidden=!opts.retry;b.onclick=opts.retry||null;
-}
-function explain(e,what){
-  if(e instanceof AuthError && e.status===401){setTimeout(()=>showView("login"),1500);return "You were signed out. Please sign in again."}
-  if(e instanceof TypeError) return "Couldn't reach the database to "+what+". Check your internet connection and tap Try again.";
-  if(e && (e.status===401||e.status===403)) return "This account isn't allowed to "+what+".";
-  return "Couldn't "+what+" ("+(e&&e.message||"error")+"). Tap Try again.";
-}
-
-/* ---------- views ---------- */
-function showView(v){
-  $("loginView").hidden=v!=="login"; $("lockedView").hidden=v!=="locked"; $("appView").hidden=v!=="app"; $("saveBar").hidden=v!=="app"||tabs.Record.hidden;
-}
-
-/* ---------- loading ---------- */
-const months=()=>[...new Set([day.slice(0,7),($("month").value||month)])].sort();
-let loading=null;
-async function load(){
-  if(loading) return loading;
-  loading=(async()=>{
-    $("refresh").disabled=true;
-    try{
-      const d=await api("/rpc/get_state",{method:"POST",body:{months:months()}});
-      if(!d||d.owner!==true){$("lockedEmail").textContent=me?.email||"this account";showView("locked");return}
-      marketers=d.marketers; products=d.products;
-      if(d.settings) cfg={target:Number(d.settings.target)||5,pay:Number(d.settings.pay)||0};
-      const next={};
-      d.sales.forEach(s=>{const k=s.day+"_"+s.marketer_id+"_"+s.product_id;next[k]={date:s.day,month:s.day.slice(0,7),marketerId:s.marketer_id,productId:s.product_id,productName:s.product_name,qty:Number(s.qty),price:Number(s.price)}});
-      Object.keys(queue).forEach(k=>{if(queue[k].busy||queue[k].next) next[k]=sales[k]});
-      sales=next;
-      savings=d.savings.map(v=>({id:v.id,marketerId:v.marketer_id,date:v.day,month:v.day.slice(0,7),amount:Number(v.amount),note:v.note,at:v.created_at}));
-      balances={};d.balances.forEach(b=>{balances[b.marketer_id]={bal:Number(b.bal),inn:Number(b.inn),out:Number(b.outt)}});
-      recent={};d.recent.forEach(r=>{(recent[r.marketer_id]||(recent[r.marketer_id]=[])).push({date:r.day,amount:Number(r.amount),note:r.note,at:r.created_at})});
-      loaded=true; showStatus(""); showView("app");
-      const t=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit",timeZone:TZ});
-      $("src").textContent=`Signed in as ${me?.email||"owner"}. Loaded at ${t}.`;
-      fillSettings(); renderProducts(); render();
-    }catch(e){
-      if(e instanceof AuthError && e.status===401){showView("login");return}
-      showView("app");
-      showStatus(explain(e,"load your records"),{bad:true,retry:()=>{showStatus("Loading…");load()}});
-      if(!loaded) $("roster").innerHTML=`<li class="empty">Your records couldn't be loaded yet. See the message above.</li>`;
-    }finally{$("refresh").disabled=false;loading=null}
-  })();
-  return loading;
-}
-
-/* ---------- tabs ---------- */
-const tabs={Record:$("viewRecord"),Days:$("viewDays"),Board:$("viewBoard"),Setup:$("viewSetup")};
-function showTab(k){Object.keys(tabs).forEach(j=>{tabs[j].hidden=j!==k;$("tab"+j).setAttribute("aria-selected",j===k)});$("saveBar").hidden=k!=="Record";render()}
-Object.keys(tabs).forEach(k=>$("tab"+k).addEventListener("click",()=>showTab(k)));
-
-/* ---------- sales writes: one at a time per cell, latest value wins ---------- */
-const queue={};
-let saveFailed=false;
-const anyPending=()=>Object.values(queue).some(q=>q.busy||q.next);
-function setSaveState(t,cls){const s=$("saveState");s.textContent=t;s.className=cls||"note"}
-function writeSale(m,qty){
-  const p=products.find(x=>x.id===curProd); if(!p) return;
-  const id=day+"_"+m.id+"_"+p.id;
-  const body={date:day,month:day.slice(0,7),marketerId:m.id,productId:p.id,productName:p.name,qty,price:(sales[id]?.price)??Number(p.price)};
-  sales[id]=body; render();
-  const q=queue[id]||(queue[id]={busy:false,next:null});
-  q.next=body; setSaveState("Saving…"); if(q.busy) return;
-  (async function run(){
-    while(q.next){const b=q.next;q.next=null;q.busy=true;
-      try{
-        if(b.qty>0) await api("/sales?on_conflict=day,marketer_id,product_id",{method:"POST",prefer:"resolution=merge-duplicates,return=minimal",body:{day:b.date,marketer_id:b.marketerId,product_id:b.productId,product_name:b.productName,qty:b.qty,price:b.price,updated_at:new Date().toISOString()}});
-        else await api(`/sales?day=eq.${enc(b.date)}&marketer_id=eq.${enc(b.marketerId)}&product_id=eq.${enc(b.productId)}`,{method:"DELETE",prefer:"return=minimal"});
-        saveFailed=false; showStatus("");
-      }catch(e){saveFailed=true;showStatus(explain(e,"save that sale")+" The number on screen may not be saved.",{bad:true,retry:()=>{showStatus("Loading…");load()}})}
-    } q.busy=false;
-    if(!anyPending()) saveFailed?setSaveState("Last change not saved","bad"):setSaveState("All changes saved","ok");
-  })();
-}
-
-/* ---------- derived ---------- */
-const dayRows=(mid,d=day)=>Object.values(sales).filter(s=>s.date===d&&s.marketerId===mid&&s.qty>0);
-const qtyFor=(mid,d=day,pid=curProd)=>sales[d+"_"+mid+"_"+pid]?.qty||0;
-const dayTotal=(mid,d=day)=>dayRows(mid,d).reduce((a,s)=>a+s.qty,0);
-const monthRows=mo=>Object.values(sales).filter(s=>s.month===mo);
-const prodName=s=>products.find(p=>p.id===s.productId)?.name||s.productName||"Product";
-const balanceOf=mid=>balances[mid]?.bal||0;
-const savedOnDay=(mid,d=day)=>savings.filter(s=>s.marketerId===mid&&s.date===d&&s.amount>0).reduce((a,s)=>a+s.amount,0);
-const mName=id=>marketers.find(m=>m.id===id)?.name||"Removed marketer";
-
-function renderProducts(){
-  const live=products.filter(p=>p.active!==false);
-  if(!live.find(p=>p.id===curProd)) curProd=live[0]?.id||null;
-  $("prodPick").innerHTML=live.length?live.map(p=>`<button type="button" role="radio" aria-checked="${p.id===curProd}" data-prod="${p.id}">${esc(p.name)} <small>GH₵${Number(p.price).toLocaleString()}</small></button>`).join("")
-    :`<span class="note">${loaded?"No products yet. Add one in <b>Setup</b> with its price.":"Loading…"}</span>`;
-  $("plist").innerHTML=products.length?products.map(p=>`<li><input type="text" id="pn-${p.id}" value="${esc(p.name)}" aria-label="Product name"><input type="number" id="pp-${p.id}" min="0" step="0.5" value="${Number(p.price)}" aria-label="Price GH₵"><button type="button" data-psave="${p.id}">Save</button><button type="button" class="ghost" data-ptoggle="${p.id}">${p.active===false?"Resume":"Pause"}</button></li>`).join("")
-    :`<li class="note">No products yet.</li>`;
-}
-
-function render(){
-  const active=marketers.filter(m=>m.active!==false);
-  let dayU=0,dayC=0,sellers=0;
-  active.forEach(m=>{const r=dayRows(m.id);if(r.length){sellers++;r.forEach(s=>{dayU+=s.qty;dayC+=s.qty*s.price})}});
-  $("sDayUnits").textContent=dayU;
-  $("sDayLabel").textContent=day===todayISO()?"items sold today":"items sold "+fmtDay(day,{day:"numeric",month:"short"});
-  $("sDayCash").textContent=money(dayC);
-  const mRows=monthRows(day.slice(0,7));
-  $("sMonthUnits").textContent=mRows.reduce((a,s)=>a+s.qty,0);
-  $("sMonthLabel").textContent="items in "+fmtDay(day,{month:"long"});
-  $("sSaved").textContent=money(marketers.reduce((a,m)=>a+savedOnDay(m.id),0));
-
-  if(!tabs.Record.hidden && loaded){
-    const q=$("search").value.trim().toLowerCase();
-    let list=marketers.filter(m=>!q||m.name.toLowerCase().includes(q)||String(m.no)===q||(m.phone||"").includes(q));
-    const sort=$("sort").value;
-    list.sort((a,b)=>(a.active===false)-(b.active===false)||(sort==="name"?a.name.localeCompare(b.name):sort==="day"?dayTotal(b.id)-dayTotal(a.id)||a.no-b.no:a.no-b.no));
-    const ul=$("roster");
-    if(!marketers.length) ul.innerHTML=`<li class="empty">No marketers yet. Open <b>Setup</b> to add your team, one at a time or a whole list at once.</li>`;
-    else if(!list.length) ul.innerHTML=`<li class="empty">No marketer matches “${esc(q)}”.</li>`;
-    else ul.innerHTML=list.map(m=>{
-      const n=qtyFor(m.id), all=dayTotal(m.id), off=m.active===false||!curProd;
-      const mon=mRows.filter(s=>s.marketerId===m.id).reduce((a,s)=>a+s.qty,0);
-      const pill=m.active===false?`<span class="pill off">paused</span>`:all>=cfg.target?`<span class="pill hit">target hit</span>`:`<span class="pill">${all}/${cfg.target} today</span>`;
-      const t=savedOnDay(m.id);
-      return `<li>
-        <div class="m">
-          <span class="num">${m.no}</span>
-          <div class="who"><button type="button" class="nm" data-open="${m.id}" aria-expanded="${openId===m.id}">${esc(m.name)}</button><small>${pill} · ${mon} this month${all!==n?` · ${all} all products today`:""}</small><button type="button" class="savebtn" data-saving="${m.id}">Savings · ${money(balanceOf(m.id))}${t?` · +${money(t)} today`:""}</button></div>
-          <div class="ctr">${off?"":`<button type="button" data-d="-1" data-m="${m.id}" aria-label="Remove a sale for ${esc(m.name)}" ${n?"":"disabled"}>−</button><b>${n}</b><button type="button" data-d="1" data-m="${m.id}" aria-label="Add a sale for ${esc(m.name)}">+</button>`}</div>
-        </div>
-        ${openId===m.id?detailHTML(m,mRows):""}
-      </li>`}).join("");
-    if(focusSave&&openId===focusSave){const f=$("svAmt");if(f){f.focus();f.scrollIntoView({block:"center"})}focusSave=null}
-    const paused=marketers.filter(m=>m.active===false).length, cp=products.find(p=>p.id===curProd);
-    $("rosterNote").textContent=marketers.length?`${marketers.length} marketers${paused?`, ${paused} paused`:""}, ${sellers} sold that day. The big number is ${cp?cp.name:"the chosen product"} sold that day. Tap a name for details.`:"";
-  }
-
-  if(!tabs.Days.hidden){
-    const mo=$("month").value||month;
-    if($("dmonth").value!==mo) $("dmonth").value=mo;
-    $("daysTitle").textContent=fmtDay(mo+"-15",{month:"long",year:"numeric"});
-    const byDay={};
-    monthRows(mo).forEach(s=>{if(s.qty>0)(byDay[s.date]||(byDay[s.date]=[])).push(s)});
-    const svDay={};
-    savings.filter(s=>s.month===mo).forEach(s=>{(svDay[s.date]||(svDay[s.date]=[])).push(s);byDay[s.date]=byDay[s.date]||[]});
-    const dates=Object.keys(byDay).sort().reverse();
-    let mu=0,mc=0,ms=0;
-    const cards=dates.map(d=>{
-      const rows=byDay[d].sort((a,b)=>mName(a.marketerId).localeCompare(mName(b.marketerId))||b.qty-a.qty);
-      const u=rows.reduce((a,s)=>a+s.qty,0), c=rows.reduce((a,s)=>a+s.qty*s.price,0); mu+=u; mc+=c;
-      const sv=(svDay[d]||[]).sort((a,b)=>mName(a.marketerId).localeCompare(mName(b.marketerId)));
-      const sIn=sv.filter(s=>s.amount>0).reduce((a,s)=>a+s.amount,0); ms+=sIn;
-      return `<details class="card more" style="gap:8px">
-        <summary><div class="row between"><span>${fmtDay(d,{weekday:"short",day:"numeric",month:"short"})}${d===todayISO()?' · today':''}</span><span class="num">${u} items · ${money(c)}${sIn?` · ${money(sIn)} saved`:""}</span></div></summary>
-        ${rows.length?`<div class="tbl"><table><tbody>${rows.map(s=>`<tr><td>${esc(mName(s.marketerId))}</td><td>${esc(prodName(s))}</td><td class="r">${s.qty}</td><td class="r">${(s.qty*s.price).toLocaleString()}</td></tr>`).join("")}</tbody></table></div>`:""}
-        ${sv.length?`<div class="eyebrow">Savings</div><div class="tbl"><table><tbody>${sv.map(s=>`<tr><td>${esc(mName(s.marketerId))}</td><td>${esc(s.note||(s.amount<0?"Paid out":"Saved"))}</td><td class="r" style="color:${s.amount<0?"var(--warn)":"var(--good)"}">${s.amount<0?"−":"+"}${Math.abs(s.amount).toLocaleString()}</td></tr>`).join("")}</tbody></table></div>`:""}
-        <div class="row"><button type="button" data-goto="${d}">Edit this day</button></div>
-      </details>`}).join("");
-    $("dayList").innerHTML=dates.length
-      ? `<p class="note">${dates.length} days · ${mu} items · ${money(mc)} in sales · ${money(ms)} saved this month. Tap a day to see who sold and who saved.</p>`+cards
-      : `<div class="card empty">No sales or savings recorded in this month yet. Use the Record tab to add today's.</div>`;
-  }
-
-  if(!tabs.Board.hidden){
-    const mo=$("month").value||month, rows=monthRows(mo);
-    $("boardTitle").textContent=fmtDay(mo+"-15",{month:"long",year:"numeric"});
-    const showPay=cfg.pay>0; $("thPay").hidden=!showPay;
-    const agg=marketers.map(m=>{const r=rows.filter(s=>s.marketerId===m.id);return{m,u:r.reduce((a,s)=>a+s.qty,0),d:new Set(r.map(s=>s.date)).size,c:r.reduce((a,s)=>a+s.qty*s.price,0)}}).filter(x=>x.u>0).sort((a,b)=>b.u-a.u);
-    $("board").innerHTML=agg.length?agg.map((x,i)=>`<tr><td>${i+1}</td><td>${esc(x.m.name)}</td><td class="r">${x.u}</td><td class="r">${x.d}</td><td class="r">${x.c.toLocaleString()}</td>${showPay?`<td class="r">${(x.u*cfg.pay).toLocaleString()}</td>`:""}</tr>`).join(""):`<tr><td colspan="6" class="empty">No sales recorded in this month yet.</td></tr>`;
-    const T=agg.reduce((a,x)=>({u:a.u+x.u,c:a.c+x.c}),{u:0,c:0});
-    $("boardFoot").innerHTML=agg.length?`<tr><th></th><th>Total</th><th class="r">${T.u}</th><th></th><th class="r">${T.c.toLocaleString()}</th>${showPay?`<th class="r">${(T.u*cfg.pay).toLocaleString()}</th>`:""}</tr>`:"";
-    const byP={};rows.forEach(s=>{if(!s.qty)return;const k=prodName(s);(byP[k]||(byP[k]={u:0,c:0}));byP[k].u+=s.qty;byP[k].c+=s.qty*s.price});
-    const pk=Object.keys(byP).sort((a,b)=>byP[b].u-byP[a].u);
-    $("prodBoard").innerHTML=pk.length?pk.map(k=>`<tr><td>${esc(k)}</td><td class="r">${byP[k].u}</td><td class="r">${byP[k].c.toLocaleString()}</td></tr>`).join(""):`<tr><td colspan="3" class="empty">Nothing sold this month yet.</td></tr>`;
-    const sv=marketers.map(m=>({m,mo:savings.filter(s=>s.marketerId===m.id&&s.month===mo&&s.amount>0).reduce((a,s)=>a+s.amount,0),b:balanceOf(m.id)})).filter(x=>x.b||x.mo).sort((a,b)=>b.b-a.b);
-    const sb=sv.reduce((a,x)=>a+x.b,0);
-    $("saveBoard").innerHTML=sv.length?sv.map(x=>`<tr><td>${esc(x.m.name)}</td><td class="r">${x.mo.toLocaleString()}</td><td class="r">${x.b.toLocaleString()}</td></tr>`).join("")+`<tr><th>Total held</th><th></th><th class="r">${sb.toLocaleString()}</th></tr>`:`<tr><td colspan="3" class="empty">No savings recorded yet.</td></tr>`;
-  }
-}
-
-function detailHTML(m,mRows){
-  const r=mRows.filter(s=>s.marketerId===m.id);
-  const u=r.reduce((a,s)=>a+s.qty,0), c=r.reduce((a,s)=>a+s.qty*s.price,0);
-  const h=recent[m.id]||[];
-  return `<div class="detail">
-    <div class="mini"><div><b>${u}</b><span>items this month</span></div><div><b>${c.toLocaleString()}</b><span>GH₵ brought in</span></div><div><b>${new Set(r.map(s=>s.date)).size}</b><span>days selling</span></div></div>
-    ${cfg.pay>0?`<p class="note">Pay owed this month: <b>${money(u*cfg.pay)}</b></p>`:""}
-    <div class="savings">
-      <div class="row between"><b>Savings</b><span class="bal">${money(balanceOf(m.id))}</span></div>
-      <div class="row">
-        <input id="svAmt" type="number" min="0" step="0.5" inputmode="decimal" placeholder="Amount GH₵" aria-label="Savings amount" style="flex:1 1 110px">
-        <input id="svNote" placeholder="Note (optional)" aria-label="Savings note" style="flex:2 1 140px">
-      </div>
-      <div class="row"><button class="primary" type="button" data-svin="${m.id}">Add to savings</button><button type="button" data-svout="${m.id}">Pay out</button><span class="note" id="svMsg"></span></div>
-      <p class="note">Recorded on ${fmtDay(day,{day:"numeric",month:"short",year:"numeric"})}, the date at the top of the page.</p>
-      ${h.length?`<div class="tbl"><table><tbody>${h.map(s=>`<tr><td>${fmtDay(s.date,{day:"numeric",month:"short"})}</td><td>${esc(s.note||(s.amount<0?"Paid out":"Saved"))}</td><td class="r" style="color:${s.amount<0?"var(--warn)":"var(--good)"}">${s.amount<0?"−":"+"}${Math.abs(s.amount).toLocaleString()}</td></tr>`).join("")}</tbody></table></div>`:`<p class="note">No savings yet. Enter an amount and tap Add to savings.</p>`}
-    </div>
-    <div class="row"><input id="eName" value="${esc(m.name)}" aria-label="Name"><input id="ePhone" value="${esc(m.phone)}" placeholder="Phone" aria-label="Phone"><input id="eArea" value="${esc(m.area)}" placeholder="Area" aria-label="Area"></div>
-    <div class="row"><button class="primary" type="button" data-save="${m.id}">Save details</button><button class="ghost" type="button" data-toggle="${m.id}">${m.active===false?"Resume":"Pause"} marketer</button></div>
-  </div>`;
-}
-
-/* ---------- actions ---------- */
-async function act(what,fn,after){
-  try{await fn();showStatus("");if(after)after();await load();return true}
-  catch(e){showStatus(explain(e,what),{bad:true,retry:()=>{showStatus("Loading…");load()}});return false}
-}
-$("roster").addEventListener("click",async e=>{
-  const b=e.target.closest("button"); if(!b||!loaded) return;
-  if(b.dataset.d){const m=marketers.find(x=>x.id===b.dataset.m);writeSale(m,Math.max(0,qtyFor(m.id)+Number(b.dataset.d)));return}
-  if(b.dataset.open){openId=openId===b.dataset.open?null:b.dataset.open;render();return}
-  if(b.dataset.saving){openId=b.dataset.saving;focusSave=b.dataset.saving;render();return}
-  if(b.dataset.svin||b.dataset.svout){
-    const mid=b.dataset.svin||b.dataset.svout, out=!!b.dataset.svout;
-    const amt=Number($("svAmt").value);
-    if(!(amt>0)){$("svMsg").textContent="Enter an amount first.";return}
-    if(out&&amt>balanceOf(mid)){$("svMsg").textContent="That's more than the "+money(balanceOf(mid))+" saved.";return}
-    b.disabled=true;$("svMsg").textContent="Saving…";
-    await act("save the savings",()=>api("/savings",{method:"POST",prefer:"return=minimal",body:{day,marketer_id:mid,amount:out?-amt:amt,note:$("svNote").value.trim()}}));
-    return}
-  if(b.dataset.save){const id=b.dataset.save;const name=$("eName").value.trim();if(!name)return;b.disabled=true;
-    await act("save the details",()=>api(`/marketers?id=eq.${enc(id)}`,{method:"PATCH",prefer:"return=minimal",body:{name,phone:$("ePhone").value.trim(),area:$("eArea").value.trim()}}));return}
-  if(b.dataset.toggle){const m=marketers.find(x=>x.id===b.dataset.toggle);b.disabled=true;
-    await act("change that marketer",()=>api(`/marketers?id=eq.${enc(m.id)}`,{method:"PATCH",prefer:"return=minimal",body:{active:m.active===false}}))}
-});
-
-$("prodPick").addEventListener("click",e=>{const b=e.target.closest("button[data-prod]");if(!b)return;curProd=b.dataset.prod;store.set("st-prod",curProd);renderProducts();render()});
-$("plist").addEventListener("click",async e=>{const b=e.target.closest("button");if(!b)return;
-  if(b.dataset.psave){const id=b.dataset.psave;const name=$("pn-"+id).value.trim();const price=Number($("pp-"+id).value);if(!name||!(price>=0))return;b.disabled=true;
-    await act("save the product",()=>api(`/products?id=eq.${enc(id)}`,{method:"PATCH",prefer:"return=minimal",body:{name,price}}))}
-  if(b.dataset.ptoggle){const p=products.find(x=>x.id===b.dataset.ptoggle);b.disabled=true;
-    await act("change the product",()=>api(`/products?id=eq.${enc(p.id)}`,{method:"PATCH",prefer:"return=minimal",body:{active:p.active===false}}))}
-});
-$("addProd").addEventListener("submit",async e=>{e.preventDefault();const name=$("pName").value.trim();const price=Number($("pPrice").value);if(!name||!(price>=0))return;
-  const no=products.reduce((a,p)=>Math.max(a,p.no||0),0)+1;
-  await act("add the product",()=>api("/products",{method:"POST",prefer:"return=minimal",body:{id:newId(),no,name,price,active:true}}),()=>{$("pName").value=$("pPrice").value=""})});
-
-const nextNo=()=>marketers.reduce((a,m)=>Math.max(a,m.no||0),0)+1;
-const marketerRows=list=>{let no=nextNo();return list.map(x=>({id:newId(),no:no++,name:x.name,phone:x.phone||"",area:x.area||"",active:true,joined:todayISO()}))};
-$("addOne").addEventListener("submit",async e=>{e.preventDefault();const name=$("newName").value.trim();if(!name)return;
-  await act("add the marketer",()=>api("/marketers",{method:"POST",prefer:"return=minimal",body:marketerRows([{name,phone:$("newPhone").value.trim(),area:$("newArea").value.trim()}])}),()=>{$("newName").value=$("newPhone").value=$("newArea").value="";$("newName").focus()})});
-const parseMany=()=>$("manyNames").value.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{const [name,...rest]=l.split(",");return{name:name.trim(),phone:rest.join(",").trim()}}).filter(x=>x.name);
-$("manyNames").addEventListener("input",()=>{const n=parseMany().length;$("manyCount").textContent=n+(n===1?" name":" names")});
-$("addMany").addEventListener("submit",async e=>{e.preventDefault();const list=parseMany();if(!list.length)return;
-  const btn=e.submitter;if(btn)btn.disabled=true;$("manyCount").textContent="Adding…";
-  const ok=await act("add the marketers",()=>api("/marketers",{method:"POST",prefer:"return=minimal",body:marketerRows(list)}));if(btn)btn.disabled=false;
-  if(ok){$("manyNames").value="";$("manyCount").textContent="Added "+list.length+". They're on the Record tab."}else $("manyCount").textContent="Nothing was added. See the message at the top."});
-
-function fillSettings(){$("setTarget").value=cfg.target;$("setPay").value=cfg.pay}
-$("settings").addEventListener("submit",async e=>{e.preventDefault();
-  const t=Number($("setTarget").value)||5, p=Number($("setPay").value)||0;
-  $("setMsg").textContent="Saving…";
-  const ok=await act("save the settings",()=>api("/settings?on_conflict=id",{method:"POST",prefer:"resolution=merge-duplicates,return=minimal",body:{id:1,target:t,pay:p}}));
-  $("setMsg").textContent=ok?"Saved":"Not saved"});
-
-$("saveBtn").addEventListener("click",async()=>{
-  const btn=$("saveBtn");
-  btn.disabled=true;btn.textContent="Saving…";
-  const t0=Date.now();while(anyPending()&&Date.now()-t0<15000) await new Promise(r=>setTimeout(r,200));
-  btn.disabled=false;btn.textContent="Save";
-  const time=new Date().toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit",timeZone:TZ});
-  if(anyPending()) setSaveState("Still saving. Check your connection.","bad");
-  else if(saveFailed) setSaveState("A change didn't save. Tap Refresh, then try again.","bad");
-  else setSaveState("Saved ✓ at "+time,"ok");
-});
-$("refresh").addEventListener("click",()=>load());
-$("signOut").addEventListener("click",signOut);
-$("lockedOut").addEventListener("click",signOut);
-$("lockedRetry").addEventListener("click",()=>load());
-$("search").addEventListener("input",render);
-$("sort").addEventListener("change",render);
-$("month").addEventListener("change",()=>{render();load()});
-$("dmonth").addEventListener("change",()=>{$("month").value=$("dmonth").value;render();load()});
-$("dayList").addEventListener("click",e=>{const b=e.target.closest("button[data-goto]");if(!b)return;
-  day=b.dataset.goto;$("day").value=day;showTab("Record");window.scrollTo({top:0});load()});
-$("day").addEventListener("change",()=>{day=$("day").value||todayISO();render();load()});
-document.addEventListener("visibilitychange",()=>{if(!document.hidden&&loaded&&!anyPending())load()});
-
-/* ---------- login form ---------- */
-let signUpMode=false;
-$("lgSwitch").addEventListener("click",()=>{
-  signUpMode=!signUpMode;
-  $("loginTitle").textContent=signUpMode?"Create your account":"Sign in";
-  $("loginIntro").textContent=signUpMode?"Create the account you'll use for this dashboard. It stays locked until the owner approves it.":"This dashboard is private. Sign in with your MOZLYT account.";
-  $("nameRow").hidden=!signUpMode;
-  $("lgPass").autocomplete=signUpMode?"new-password":"current-password";
-  $("lgBtn").textContent=signUpMode?"Create account":"Sign in";
-  $("lgSwitch").textContent=signUpMode?"Already have an account? Sign in":"First time here? Create your account";
-  $("lgMsg").textContent="";
-});
-$("loginForm").addEventListener("submit",async e=>{
-  e.preventDefault();
-  const email=$("lgEmail").value.trim(), pass=$("lgPass").value;
-  if(pass.length<8){$("lgMsg").textContent="Use at least 8 characters for the password.";return}
-  $("lgBtn").disabled=true;$("lgMsg").textContent=signUpMode?"Creating your account…":"Signing in…";
-  try{
-    signUpMode?await signUp($("lgName").value.trim(),email,pass):await signIn(email,pass);
-    $("lgPass").value="";$("lgMsg").textContent="";
-    showStatus("Loading your records…");await load();
-  }catch(err){
-    $("lgMsg").textContent=err instanceof TypeError?"Couldn't reach the sign-in service. Check your internet connection."
-      :err.status===401||/invalid/i.test(err.message)?"That email and password don't match. Try again."
-      :/exist/i.test(err.message)?"That email already has an account. Use Sign in instead."
-      :"Couldn't sign in: "+err.message;
-  }finally{$("lgBtn").disabled=false}
-});
-
-/* ---------- start ---------- */
-(async()=>{
-  try{await getJwt(true);showStatus("Loading your records…");await load()}
-  catch(e){showView("login")}
-})();
-
-</script>
+<script src="app.js?v=2"></script>
 </body>
 </html>

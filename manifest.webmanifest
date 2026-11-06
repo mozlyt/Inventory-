@@ -1,0 +1,16 @@
+{
+  "name": "MOZLYT Inventory",
+  "short_name": "MOZLYT Stock",
+  "description": "Stock, sales, money and savings for the MOZLYT sales team.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#13120e",
+  "theme_color": "#13120e",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
