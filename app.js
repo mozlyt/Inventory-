@@ -69,7 +69,7 @@ const del=(table,id)=>api(`/${table}?id=eq.${enc(id)}`,{method:"DELETE",prefer:"
 let S=null;                 // last loaded state
 let day=todayISO();
 let screen=store.get("inv-screen")||"home";
-let moneyTab="owed", teamQuery="", reportPeriod="month";
+let moneyTab="owed", teamQuery="", reportPeriod="month", showRemoved=false;
 
 const months=()=>{const m=day.slice(0,7);const t=todayISO().slice(0,7);return [...new Set([m,prevMonth(m),t,prevMonth(t)])]};
 const P=id=>S.products.find(p=>p.id===id);
@@ -77,7 +77,9 @@ const M=id=>S.marketers.find(m=>m.id===id);
 const mName=id=>M(id)?.name||"Removed marketer";
 const pName=s=>P(s.product_id)?.name||s.product_name||"Product";
 const liveProducts=()=>S.products.filter(p=>p.active!==false);
-const liveMarketers=()=>S.marketers.filter(m=>m.active!==false);
+const liveMarketers=()=>S.marketers.filter(m=>m.active!==false&&!m.removed_at);
+const teamMarketers=()=>S.marketers.filter(m=>!m.removed_at);
+const removedPill=m=>m.removed_at?' <span class="pill off">removed</span>':"";
 const salesOn=d=>S.sales.filter(s=>s.day===d);
 const salesIn=(from,to)=>S.sales.filter(s=>s.day>=from&&s.day<=to);
 const sumQty=a=>a.reduce((t,s)=>t+Number(s.qty),0);
@@ -366,7 +368,9 @@ function moveSheet(mv){
 /* =================== TEAM =================== */
 function renderTeam(){
   const q=teamQuery.trim().toLowerCase();
-  const list=S.marketers.filter(m=>!q||m.name.toLowerCase().includes(q)||(m.phone||"").includes(q)||String(m.no)===q)
+  const removedCount=S.marketers.filter(m=>m.removed_at).length;
+  if(!removedCount) showRemoved=false;
+  const list=S.marketers.filter(m=>showRemoved?!!m.removed_at:!m.removed_at).filter(m=>!q||m.name.toLowerCase().includes(q)||(m.phone||"").includes(q)||String(m.no)===q)
     .sort((a,b)=>(a.active===false)-(b.active===false)||a.no-b.no);
   const r=$("scr-team");
   r.innerHTML=`
@@ -374,11 +378,13 @@ function renderTeam(){
     <div class="card" style="padding:4px 16px">
       ${list.length?`<ul class="list">${list.map(m=>{const mo=moneyOf(m.id);const h=holdingsOf(m.id).reduce((t,x)=>t+x.n,0);const td=sumQty(salesOn(day).filter(s=>s.marketer_id===m.id));return `<li><button class="item" data-open-m="${m.id}">
         <span class="avatar">${esc(initials(m.name))}</span>
-        <span class="grow"><span class="t">${esc(m.name)} ${m.active===false?'<span class="pill off">paused</span>':""}</span><span class="s">${esc([m.phone,m.area].filter(Boolean).join(" · ")||"No phone yet")}</span>
+        <span class="grow"><span class="t">${esc(m.name)} ${m.removed_at?'<span class="pill off">removed</span>':m.active===false?'<span class="pill off">paused</span>':""}</span><span class="s">${esc([m.phone,m.area].filter(Boolean).join(" · ")||"No phone yet")}</span>
           <span class="row" style="gap:6px;margin-top:4px">${td?`<span class="pill good">${td} sold today</span>`:""}${h?`<span class="pill">holding ${h}</span>`:""}${mo.owes>0.009?`<span class="pill warn">owes ${cedi(mo.owes)}</span>`:""}${mo.saved?`<span class="pill">saved ${cedi(mo.saved)}</span>`:""}</span></span>
         <span class="r muted">›</span></button></li>`}).join("")}</ul>`:`<p class="empty">${q?"No marketer matches.":"No marketers yet. Tap + Add."}</p>`}
     </div>
-    <p class="small muted">${S.marketers.length} marketers. Tap one to see their stock, sales, money and savings, or to edit them.</p>`;
+    ${showRemoved?`<div class="row between"><p class="small muted">Removed marketers. Their past sales stay in your reports.</p><button class="btn-ghost" id="tShowRem">Back to team</button></div>`
+      :`<div class="row between"><p class="small muted">${teamMarketers().length} on your team. Tap one to see their stock, money and savings, or to edit or remove them.</p>${removedCount?`<button class="btn-ghost" id="tShowRem">Removed (${removedCount})</button>`:""}</div>`}`;
+  $("tShowRem")&&($("tShowRem").onclick=()=>{showRemoved=!showRemoved;renderTeam()});
   const tq=$("tq"); tq.oninput=e=>{teamQuery=e.target.value;const pos=tq.selectionStart;renderTeam();const n=$("tq");n.focus();n.setSelectionRange(pos,pos)};
   $("tAdd").onclick=()=>marketerForm(); $("tMany").onclick=()=>addManySheet();
   r.querySelectorAll("[data-open-m]").forEach(b=>b.onclick=()=>marketerPage(b.dataset.openM));
@@ -389,15 +395,42 @@ function marketerForm(m){
     <label class="f">Phone<input id="mfPhone" value="${esc(m?.phone)}" inputmode="tel"></label>
     <label class="f">Area<input id="mfArea" value="${esc(m?.area)}" placeholder="e.g. Amasaman"></label>
     <button class="btn-primary btn-block" id="mfSave">${m?"Save changes":"Add marketer"}</button>
-    ${m?`<button class="btn-ghost btn-block" id="mfPause">${m.active===false?"Resume this marketer":"Pause this marketer"}</button>
-    <p class="small muted">Pausing hides them from Sell and targets but keeps all their records.</p>`:""}`,()=>{
+    ${m&&!m.removed_at?`<button class="btn-ghost btn-block" id="mfPause">${m.active===false?"Resume this marketer":"Pause this marketer"}</button>
+    <p class="small muted">Pause: for a short break. They stay on your team list.</p>
+    <button class="btn-danger btn-block" id="mfRemove">Remove from team</button>
+    <p class="small muted">Remove: for someone who no longer works with you.</p>`:""}
+    ${m&&m.removed_at?`<button class="btn-primary btn-block" id="mfBack">Bring back to the team</button>`:""}`,()=>{
     $("mfName").focus();
     $("mfSave").onclick=()=>{const name=$("mfName").value.trim();if(!name){toast("Enter a name.",true);return}
       const row={name,phone:$("mfPhone").value.trim(),area:$("mfArea").value.trim()};
       if(m) run($("mfSave"),"save the marketer",()=>upd("marketers",m.id,row),"Saved");
       else run($("mfSave"),"add the marketer",()=>ins("marketers",{id:newId(),no:S.marketers.reduce((a,x)=>Math.max(a,x.no||0),0)+1,...row,active:true,joined:todayISO()}),"Marketer added");
     };
-    if(m) $("mfPause").onclick=()=>run($("mfPause"),"change the marketer",()=>upd("marketers",m.id,{active:m.active===false}),m.active===false?"Resumed":"Paused");
+    if(m&&!m.removed_at){
+      $("mfPause").onclick=()=>run($("mfPause"),"change the marketer",()=>upd("marketers",m.id,{active:m.active===false}),m.active===false?"Resumed":"Paused");
+      $("mfRemove").onclick=()=>removeSheet(m);
+    }
+    if(m&&m.removed_at) $("mfBack").onclick=()=>run($("mfBack"),"bring the marketer back",()=>upd("marketers",m.id,{removed_at:null,active:true}),"Back on the team");
+  });
+}
+function removeSheet(m){
+  const mo=moneyOf(m.id), held=holdingsOf(m.id);
+  const warn=[
+    held.length?`is still holding <b>${held.map(h=>h.n+" × "+esc(h.p.name)).join(", ")}</b>. Use <b>Return stock</b> first if they gave it back.`:"",
+    mo.owes>0.009?`still owes you <b>${cedi(mo.owes)}</b>.`:"",
+    mo.saved>0.009?`has <b>${cedi(mo.saved)}</b> in savings with you. Use <b>Pay out savings</b> if you've given it back.`:""
+  ].filter(Boolean);
+  openSheet("Remove "+m.name+"?",`
+    ${warn.length?`<div class="alert"><span>⚠️</span><span>${esc(m.name)} ${warn.join("<br>"+esc(m.name)+" ")}</span></div>`:""}
+    <p>${esc(m.name)} will disappear from Team, Sell, Home and targets.</p>
+    <p class="muted">If they have no records yet, they're deleted completely. If they have past sales, payments, stock or savings, those stay in your reports, and you can find them later under <b>Removed</b> on the Team screen.</p>
+    <button class="btn-danger btn-block" id="rmGo">Remove ${esc(m.name)}</button>
+    <button class="btn-ghost btn-block" id="rmNo">Keep them</button>`,()=>{
+    $("rmNo").onclick=()=>marketerPage(m.id);
+    confirmBtn($("rmGo"),"Tap again to confirm",()=>run($("rmGo"),"remove the marketer",async()=>{
+      try{await del("marketers",m.id)}                       // no records: delete completely
+      catch(e){if(e instanceof TypeError||e.status===401||e.status===403)throw e;await upd("marketers",m.id,{removed_at:new Date().toISOString(),active:false})} // has records: remove from team, keep history
+    },m.name+" removed"));
   });
 }
 function addManySheet(){
@@ -416,7 +449,7 @@ function marketerPage(mid){
   const pays=S.recent_payments.filter(p=>p.marketer_id===mid);
   const savs=S.recent_savings.filter(s=>s.marketer_id===mid);
   const pay=Number(S.settings?.pay||0);
-  openSheet(m.name,`
+  openSheet(m.name+(m.removed_at?" (removed)":""),`
     <div class="row between"><span class="muted">${esc([m.phone,m.area].filter(Boolean).join(" · ")||"No phone yet")}</span><button class="btn-ghost" id="mpEdit">Edit</button></div>
     <div class="grid2">
       <div class="tile"><b>${sumQty(monthSales)}</b><span>sold in ${fmtDay(day,{month:"long"})}</span></div>
@@ -436,8 +469,11 @@ function marketerPage(mid){
     ${hs.length?`<div><div class="eyebrow">Holding</div><ul class="list">${hs.map(x=>`<li><div class="item"><span class="grow t">${esc(x.p.name)}</span><span class="r"><b>${x.n}</b></span></div></li>`).join("")}</ul></div>`:""}
     <div><div class="eyebrow">Recent sales</div>${recentSales.length?`<ul class="list">${recentSales.map(s=>`<li><div class="item"><span class="grow"><span class="t">${esc(pName(s))} × ${s.qty}</span><span class="s">${fmtDay(s.day)} · ${s.method==="momo"?"MoMo":"Cash"}</span></span><span class="r">${cedi(s.qty*s.price)}</span></div></li>`).join("")}</ul>`:`<p class="empty">No sales yet.</p>`}</div>
     <div><div class="eyebrow">Money received</div>${pays.length?`<ul class="list">${pays.map(p=>`<li><div class="item"><span class="grow"><span class="t">${cedi(p.amount)}</span><span class="s">${fmtDay(p.day)} · ${p.method==="momo"?"MoMo":"Cash"}${p.note?" · "+esc(p.note):""}</span></span></div></li>`).join("")}</ul>`:`<p class="empty">None yet.</p>`}</div>
-    <div><div class="eyebrow">Savings</div>${savs.length?`<ul class="list">${savs.map(s=>`<li><div class="item"><span class="grow"><span class="t">${s.amount<0?"Paid out":"Saved"}</span><span class="s">${fmtDay(s.day)}${s.note?" · "+esc(s.note):""}</span></span><span class="r" style="color:${s.amount<0?"var(--warn)":"var(--good)"}">${s.amount<0?"−":"+"}${cedi(Math.abs(s.amount))}</span></div></li>`).join("")}</ul>`:`<p class="empty">None yet.</p>`}</div>`,()=>{
+    <div><div class="eyebrow">Savings</div>${savs.length?`<ul class="list">${savs.map(s=>`<li><div class="item"><span class="grow"><span class="t">${s.amount<0?"Paid out":"Saved"}</span><span class="s">${fmtDay(s.day)}${s.note?" · "+esc(s.note):""}</span></span><span class="r" style="color:${s.amount<0?"var(--warn)":"var(--good)"}">${s.amount<0?"−":"+"}${cedi(Math.abs(s.amount))}</span></div></li>`).join("")}</ul>`:`<p class="empty">None yet.</p>`}</div>
+    ${m.removed_at?`<button class="btn-primary btn-block" id="mpBack">Bring back to the team</button>`:`<button class="btn-danger btn-block" id="mpRemove">Remove ${esc(m.name)} from team</button>`}`,()=>{
     $("mpEdit").onclick=()=>marketerForm(m);
+    $("mpRemove")&&($("mpRemove").onclick=()=>removeSheet(m));
+    $("mpBack")&&($("mpBack").onclick=()=>run($("mpBack"),"bring the marketer back",()=>upd("marketers",m.id,{removed_at:null,active:true}),"Back on the team"));
     $("mpSale").onclick=()=>{closeSheet();sellForm.mid=mid;store.set("inv-sell-m",mid);go("sell")};
     $("mpPay").onclick=()=>paymentSheet(mid);
     $("mpGive").onclick=()=>stockSheet("out",mid);
@@ -453,7 +489,7 @@ function paymentSheet(mid){
   let method="cash";
   openSheet("Receive money from a marketer",`
     <p class="muted">Money a marketer hands to you for the items they sold.</p>
-    <label class="f">Marketer<select id="pyM">${marketerOptions(mid)}</select></label>
+    <label class="f">Marketer<select id="pyM">${marketerOptions(mid,false)}</select></label>
     <p class="small" id="pyOwe"></p>
     <label class="f">Amount (GH₵)<input id="pyAmt" type="number" min="0" step="0.5" inputmode="decimal"></label>
     <div class="seg"><button type="button" data-seg="pm" data-v="cash" aria-pressed="true">Cash</button><button type="button" data-seg="pm" data-v="momo" aria-pressed="false">MoMo</button></div>
