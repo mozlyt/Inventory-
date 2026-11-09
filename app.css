@@ -151,3 +151,14 @@ dialog.sheet::backdrop{background:rgba(0,0,0,.55)}
   dialog.sheet[open]{animation:up .22s ease-out}
   @keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
 }
+
+/* ---------- MOZLYT logo ---------- */
+.lockup{display:flex;flex-direction:column;align-items:center;gap:6px;background:#13120e;border-radius:18px;padding:18px 16px 16px;margin:-4px -4px 4px}
+.lockup img{width:min(230px,70%);height:auto;display:block}
+.lockup-sub{font-family:var(--body);font-size:.72rem;letter-spacing:.55em;text-transform:uppercase;color:#c9a24a;padding-left:.55em}
+.appbrand{flex:1;min-width:0;display:flex;align-items:center;gap:10px}
+.appbrand img{width:40px;height:40px;border-radius:11px;flex:none;box-shadow:0 0 0 1px var(--line)}
+.appbrand>div{min-width:0}
+.appbrand h1{font-size:1.2rem;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wordmark{display:block;font-family:var(--body);font-size:.68rem;font-weight:700;letter-spacing:.42em;line-height:1.2;background:linear-gradient(180deg,#f7dd8c,#d6a43a 50%,#b27c1e);-webkit-background-clip:text;background-clip:text;color:transparent}
+@media (prefers-color-scheme:light){.wordmark{background:linear-gradient(180deg,#b8862a,#8a6012);-webkit-background-clip:text;background-clip:text}}
