@@ -8,7 +8,7 @@ const TZ="Africa/Accra";
 
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const cedi=n=>"GH₵"+(Math.round((Number(n)||0)*100)/100).toLocaleString(undefined,{maximumFractionDigits:2});
+const cedi=n=>{const v=Math.round((Number(n)||0)*100)/100;return (v<0?"−":"")+"GH₵"+Math.abs(v).toLocaleString(undefined,{maximumFractionDigits:2})};
 const todayISO=()=>new Date().toLocaleDateString("en-CA",{timeZone:TZ});
 const fmtDay=(d,o={day:"numeric",month:"short"})=>new Date(d+"T12:00").toLocaleDateString("en-GB",o);
 const addDays=(d,n)=>{const x=new Date(d+"T12:00");x.setDate(x.getDate()+n);return x.toISOString().slice(0,10)};
@@ -69,7 +69,7 @@ const del=(table,id)=>api(`/${table}?id=eq.${enc(id)}`,{method:"DELETE",prefer:"
 let S=null;                 // last loaded state
 let day=todayISO();
 let screen=store.get("inv-screen")||"home";
-let moneyTab="owed", teamQuery="", reportPeriod="month", showRemoved=false;
+let moneyTab="overview", teamQuery="", reportPeriod="month", showRemoved=false;
 
 const months=()=>{const m=day.slice(0,7);const t=todayISO().slice(0,7);return [...new Set([m,prevMonth(m),t,prevMonth(t)])]};
 const P=id=>S.products.find(p=>p.id===id);
@@ -96,7 +96,7 @@ function stockOf(pid){
 }
 const holding=(mid,pid)=>{const h=S.holdings.find(x=>x.marketer_id===mid&&x.product_id===pid);return h?Number(h.gave)-Number(h.back)-Number(h.sold):0};
 const holdingsOf=mid=>S.products.map(p=>({p,n:holding(mid,p.id)})).filter(x=>x.n>0);
-const moneyOf=mid=>{const r=S.money.find(x=>x.marketer_id===mid)||{sold_value:0,paid:0,saved:0};return{owes:Number(r.sold_value)-Number(r.paid),saved:Number(r.saved),soldValue:Number(r.sold_value),paid:Number(r.paid)}};
+const moneyOf=mid=>{const r=S.money.find(x=>x.marketer_id===mid)||{};const n=k=>Number(r[k]||0);return{owes:n("sold_value")-n("paid"),saved:n("saved"),soldValue:n("sold_value"),paid:n("paid"),credit:n("credit_value"),allSales:n("all_sales"),profit:n("profit"),unitsGiven:n("units_given")}};
 function period(kind){
   if(kind==="today") return [day,day];
   if(kind==="week"){const d=new Date(day+"T12:00");const wd=(d.getDay()+6)%7;const from=addDays(day,-wd);return [from,addDays(from,6)]}
@@ -490,31 +490,44 @@ function marketerPage(mid){
   const m=M(mid); if(!m) return;
   const mo=moneyOf(mid), hs=holdingsOf(mid), [f,t]=period("month");
   const monthSales=S.sales.filter(s=>s.marketer_id===mid&&s.day>=f&&s.day<=t);
-  const recentSales=S.sales.filter(s=>s.marketer_id===mid).sort((a,b)=>b.day.localeCompare(a.day)||String(b.created_at).localeCompare(String(a.created_at))).slice(0,8);
-  const pays=S.recent_payments.filter(p=>p.marketer_id===mid);
-  const savs=S.recent_savings.filter(s=>s.marketer_id===mid);
   const pay=Number(S.settings?.pay||0);
+  const units=hs.reduce((a,x)=>a+x.n,0);
+  const unsoldPrice=hs.reduce((a,x)=>a+x.n*Number(x.p.price),0), unsoldCost=hs.reduce((a,x)=>a+x.n*Number(x.p.cost||0),0);
+  const line=(label,val,sub,strong)=>`<li><div class="item"><span class="grow"><span class="${strong?"t":""}">${label}</span>${sub?`<span class="s" style="white-space:normal">${sub}</span>`:""}</span><span class="r">${strong?`<b>${val}</b>`:val}</span></div></li>`;
   openSheet(m.name+(m.removed_at?" (removed)":""),`
-    <div class="row between"><span class="muted">${esc([m.phone,m.area].filter(Boolean).join(" · ")||"No phone yet")}</span><button class="btn-ghost" id="mpEdit">Edit</button></div>
+    <div class="row between"><span class="muted">${esc([m.phone,m.area].filter(Boolean).join(" · ")||"No phone yet")}${m.active===false&&!m.removed_at?" · paused":""}</span><button class="btn-ghost" id="mpEdit">Edit</button></div>
     <div class="grid2">
-      <div class="tile"><b>${sumQty(monthSales)}</b><span>sold in ${fmtDay(day,{month:"long"})}</span></div>
-      <div class="tile"><b>${hs.reduce((a,x)=>a+x.n,0)}</b><span>items holding</span></div>
-      <div class="tile ${mo.owes>0.009?"accent":""}"><b>${cedi(Math.max(0,mo.owes))}</b><span>${mo.owes<-0.009?"paid ahead "+cedi(-mo.owes):"owes you"}</span></div>
-      <div class="tile"><b>${cedi(mo.saved)}</b><span>savings</span></div>
+      <div class="tile"><b>${cedi(mo.allSales)}</b><span>total sales</span></div>
+      <div class="tile"><b>${cedi(mo.paid)}</b><span>money handed to you</span></div>
+      <div class="tile"><b>${units}</b><span>stock remaining with them</span></div>
+      <div class="tile ${mo.owes>0.009?"accent":""}"><b>${cedi(Math.max(0,mo.owes))}</b><span>${mo.owes<-0.009?"paid ahead by "+cedi(-mo.owes):"cash still to hand in"}</span></div>
     </div>
-    ${pay>0?`<p class="small muted">Pay earned this month: <b>${cedi(sumQty(monthSales)*pay)}</b> (${sumQty(monthSales)} × ${cedi(pay)})</p>`:""}
     <div class="grid2">
-      <button class="btn-primary" id="mpSale">Record sale</button>
-      <button id="mpPay">Receive money</button>
+      <button class="btn-primary" id="mpPay">Receive money</button>
+      <button id="mpSale">Record sale</button>
       <button id="mpGive">Give stock</button>
       <button id="mpRet">Return stock</button>
       <button id="mpSave">Add savings</button>
       <button id="mpOut">Pay out savings</button>
     </div>
-    ${hs.length?`<div><div class="eyebrow">Holding</div><ul class="list">${hs.map(x=>`<li><div class="item"><span class="grow t">${esc(x.p.name)}</span><span class="r"><b>${x.n}</b></span></div></li>`).join("")}</ul></div>`:""}
-    <div><div class="eyebrow">Recent sales</div>${recentSales.length?`<ul class="list">${recentSales.map(s=>`<li><div class="item"><span class="grow"><span class="t">${esc(pName(s))} × ${s.qty}</span><span class="s">${fmtDay(s.day)} · ${methodLabel(s)}</span></span><span class="r">${cedi(s.qty*s.price)}</span></div></li>`).join("")}</ul>`:`<p class="empty">No sales yet.</p>`}</div>
-    <div><div class="eyebrow">Money received</div>${pays.length?`<ul class="list">${pays.map(p=>`<li><div class="item"><span class="grow"><span class="t">${cedi(p.amount)}</span><span class="s">${fmtDay(p.day)} · ${p.method==="momo"?"MoMo":"Cash"}${p.note?" · "+esc(p.note):""}</span></span></div></li>`).join("")}</ul>`:`<p class="empty">None yet.</p>`}</div>
-    <div><div class="eyebrow">Savings</div>${savs.length?`<ul class="list">${savs.map(s=>`<li><div class="item"><span class="grow"><span class="t">${s.amount<0?"Paid out":"Saved"}</span><span class="s">${fmtDay(s.day)}${s.note?" · "+esc(s.note):""}</span></span><span class="r" style="color:${s.amount<0?"var(--warn)":"var(--good)"}">${s.amount<0?"−":"+"}${cedi(Math.abs(s.amount))}</span></div></li>`).join("")}</ul>`:`<p class="empty">None yet.</p>`}</div>
+    <div class="card" style="padding:4px 14px">
+      <div class="eyebrow" style="padding-top:12px">Settlement</div>
+      <ul class="list">
+        ${line("Stock given to them",mo.unitsGiven+" items")}
+        ${line("Sales recorded",cedi(mo.allSales))}
+        ${line("Paid by customers (cash or MoMo)",cedi(mo.soldValue))}
+        ${line("Handed over to you","− "+cedi(mo.paid))}
+        ${line(mo.owes<-0.009?"Paid ahead":"Cash still with them",cedi(Math.abs(mo.owes)),"collected from customers, not yet handed in",true)}
+        ${line("Customers owe through them",cedi(mo.credit),"pay-later sales not paid yet")}
+        ${line("Unsold stock with them",units+" items",units?`worth ${cedi(unsoldPrice)} at selling price${unsoldCost?` · ${cedi(unsoldCost)} at cost`:""}`:"")}
+        ${line("Profit from their sales",cedi(mo.profit),"selling price − your cost")}
+        ${pay>0?line("Their pay this month",cedi(sumQty(monthSales)*pay),`${sumQty(monthSales)} items × ${cedi(pay)}`):""}
+        ${line("Their savings with you",cedi(mo.saved),"you'll pay this back to them")}
+      </ul>
+      <p class="small muted" style="padding-bottom:12px">Each line is a separate amount. They are never added together.</p>
+    </div>
+    ${hs.length?`<div><div class="eyebrow">Holding now</div><ul class="list">${hs.map(x=>`<li><div class="item"><span class="grow t">${esc(x.p.name)}</span><span class="r"><b>${x.n}</b></span></div></li>`).join("")}</ul></div>`:""}
+    <div><div class="eyebrow">Full history</div><div id="mpHist"><p class="empty">Loading history…</p></div></div>
     ${m.removed_at?`<button class="btn-primary btn-block" id="mpBack">Bring back to the team</button>`:`<button class="btn-danger btn-block" id="mpRemove">Remove ${esc(m.name)} from team</button>`}`,()=>{
     $("mpEdit").onclick=()=>marketerForm(m);
     $("mpRemove")&&($("mpRemove").onclick=()=>removeSheet(m));
@@ -525,7 +538,22 @@ function marketerPage(mid){
     $("mpRet").onclick=()=>stockSheet("return",mid);
     $("mpSave").onclick=()=>savingsSheet(mid,false);
     $("mpOut").onclick=()=>savingsSheet(mid,true);
+    loadHistory(mid);
   });
+}
+async function loadHistory(mid){
+  const q=`marketer_id=eq.${enc(mid)}&order=created_at.desc&limit=40`;
+  try{
+    const [sales,pays,savs,moves]=await Promise.all([api("/sales?"+q),api("/payments?"+q),api("/savings?"+q),api("/stock_moves?"+q)]);
+    const rows=[
+      ...sales.map(s=>({d:s.day,c:s.created_at,t:`Sold ${esc(pName(s))} × ${s.qty}`,s:methodLabel(s),v:cedi(s.qty*s.price),col:""})),
+      ...pays.map(p=>({d:p.day,c:p.created_at,t:"Handed money to you",s:(p.method==="momo"?"MoMo":"Cash")+(p.note?" · "+esc(p.note):""),v:"+"+cedi(p.amount),col:"var(--good)"})),
+      ...savs.map(v=>({d:v.day,c:v.created_at,t:v.amount<0?"Savings paid out":"Saved with you",s:esc(v.note||""),v:(v.amount<0?"−":"+")+cedi(Math.abs(v.amount)),col:v.amount<0?"var(--warn)":""})),
+      ...moves.map(mv=>({d:mv.day,c:mv.created_at,t:mv.kind==="out"?`Received ${esc(P(mv.product_id)?.name||"stock")}`:`Returned ${esc(P(mv.product_id)?.name||"stock")}`,s:esc(mv.note||""),v:(mv.kind==="out"?"→ ":"← ")+mv.qty,col:""}))
+    ].sort((a,b)=>b.d.localeCompare(a.d)||String(b.c).localeCompare(String(a.c))).slice(0,40);
+    const el=$("mpHist"); if(!el) return;
+    el.innerHTML=rows.length?`<ul class="list">${rows.map(x=>`<li><div class="item"><span class="grow"><span class="t">${x.t}</span><span class="s">${fmtDay(x.d)}${x.s?" · "+x.s:""}</span></span><span class="r" style="${x.col?"color:"+x.col:""}">${x.v}</span></div></li>`).join("")}</ul>`:`<p class="empty">Nothing recorded yet.</p>`;
+  }catch(e){const el=$("mpHist");if(el)el.innerHTML=`<p class="empty">${esc(explain(e,"load the history"))}</p>`}
 }
 
 /* =================== MONEY =================== */
@@ -560,72 +588,183 @@ function savingsSheet(mid,out){
       run($("svBtn"),"save the savings",()=>ins("savings",{day,marketer_id:mm,amount:out?-a:a,note:$("svNote").value.trim()}),out?"Savings paid out":"Savings added")};
   });
 }
+const EXPENSE_CATS=["Transport","Shipping","Rent","Airtime & data","Food","Marketing","Other"];
+let txFilter="all";
+function expenseSheet(e){
+  let cat=e?.category||"Transport";
+  openSheet(e?"Edit expense":"Record an expense",`
+    <p class="muted">Money spent running the business: transport, shipping, rent, airtime and so on. Buying stock is recorded with Stock in instead.</p>
+    <label class="f">Amount (GH₵)<input id="exAmt" type="number" min="0" step="0.5" inputmode="decimal" value="${e?Number(e.amount):""}"></label>
+    <div><span style="font-weight:700;font-size:.9rem">What for?</span><div class="chips" style="margin-top:6px">${EXPENSE_CATS.map(c=>`<button type="button" class="chip" data-chip="excat" data-v="${c}" aria-pressed="${c===cat}">${c}</button>`).join("")}</div></div>
+    <label class="f">Note (optional)<input id="exNote" value="${esc(e?.note)}" placeholder="e.g. trotro to Kaneshie market"></label>
+    <button class="btn-primary btn-block" id="exBtn">${e?"Save changes":"Save expense"}</button>
+    ${e?`<button class="btn-danger btn-block" id="exDel">Delete this expense</button>`:`<p class="small muted">Saves on ${day===todayISO()?"today's date":fmtDay(day,{day:"numeric",month:"long"})}.</p>`}`,root=>{
+    wireChips(root,"excat",v=>cat=v);
+    $("exBtn").onclick=()=>{const a=Number($("exAmt").value);if(!(a>0)){toast("Enter the amount.",true);return}
+      const row={amount:a,category:cat,note:$("exNote").value.trim()};
+      if(e) run($("exBtn"),"save the expense",()=>upd("expenses",e.id,row),"Expense updated");
+      else run($("exBtn"),"save the expense",()=>ins("expenses",{day,...row}),"Expense saved")};
+    if(e) confirmBtn($("exDel"),"Tap again to delete",()=>run($("exDel"),"delete the expense",()=>del("expenses",e.id),"Expense deleted"));
+  });
+}
+function paymentDetail(p){
+  openSheet("Money received",`<p>${esc(mName(p.marketer_id))} handed you <b>${cedi(p.amount)}</b> by ${p.method==="momo"?"MoMo":"cash"} on ${fmtDay(p.day,{day:"numeric",month:"long"})}.</p>${p.note?`<p class="muted">${esc(p.note)}</p>`:""}<button class="btn-danger btn-block" id="pdDel">Delete this payment</button>`,()=>confirmBtn($("pdDel"),"Tap again to delete",()=>run($("pdDel"),"delete the payment",()=>del("payments",p.id),"Payment deleted")));
+}
+function savingDetail(v){
+  openSheet(v.amount<0?"Savings paid out":"Savings",`<p>${esc(mName(v.marketer_id))}: <b>${v.amount<0?"paid out ":"saved "}${cedi(Math.abs(v.amount))}</b> on ${fmtDay(v.day,{day:"numeric",month:"long"})}.</p>${v.note?`<p class="muted">${esc(v.note)}</p>`:""}<button class="btn-danger btn-block" id="svDel">Delete this entry</button>`,()=>confirmBtn($("svDel"),"Tap again to delete",()=>run($("svDel"),"delete the entry",()=>del("savings",v.id),"Entry deleted")));
+}
+
+/* the figures every Money tab shares */
+function moneyFigures(f,t){
+  const inP=x=>x.day>=f&&x.day<=t;
+  const sales=salesIn(f,t), pays=S.payments.filter(inP), exps=(S.expenses||[]).filter(inP), savs=S.savings.filter(inP);
+  const stockBought=S.moves.filter(m=>m.kind==="in"&&inP(m)).reduce((a,m)=>a+Number(m.qty)*Number(m.unit_cost||0),0);
+  const pay=Number(S.settings?.pay||0);
+  const received=pays.reduce((a,p)=>a+Number(p.amount),0);
+  const expenses=exps.reduce((a,e)=>a+Number(e.amount),0);
+  const savIn=savs.filter(v=>v.amount>0).reduce((a,v)=>a+Number(v.amount),0), savOut=-savs.filter(v=>v.amount<0).reduce((a,v)=>a+Number(v.amount),0);
+  const revenue=sumVal(sales), cost=sumCost(sales), gross=revenue-cost, mpay=sumQty(sales)*pay, net=gross-mpay-expenses;
+  const withMarketers=S.marketers.reduce((a,m)=>a+Math.max(0,moneyOf(m.id).owes),0);
+  const customersOwe=unpaidCredit().reduce((a,s)=>a+s.qty*s.price,0);
+  let stockUnits=0,stockCost=0,stockPrice=0;
+  S.products.forEach(p=>{const n=Math.max(0,stockOf(p.id).total);stockUnits+=n;stockCost+=n*Number(p.cost||0);stockPrice+=n*Number(p.price||0)});
+  const savingsHeld=S.marketers.reduce((a,m)=>a+moneyOf(m.id).saved,0);
+  return {sales,pays,exps,savs,received,expenses,stockBought,spent:stockBought+expenses,savIn,savOut,revenue,cost,gross,mpay,net,pay,withMarketers,customersOwe,toCollect:withMarketers+customersOwe,stockUnits,stockCost,stockPrice,savingsHeld};
+}
+const row=(label,val,sub,opts={})=>`<li><div class="item"><span class="grow"><span class="${opts.strong?"t":""}">${label}</span>${sub?`<span class="s" style="white-space:normal">${sub}</span>`:""}</span><span class="r" ${opts.color?`style="color:${opts.color}"`:""}>${opts.strong?`<b>${val}</b>`:val}</span></div></li>`;
+
 function renderMoney(){
   const r=$("scr-money");
-  const tabs=[["owed","Marketers"],["customers","Customers"],["savings","Savings"],["profit","Profit"],["reports","Reports"]];
+  if(!["overview","transactions","people","savings","reports"].includes(moneyTab)) moneyTab="overview";
+  const tabs=[["overview","Overview"],["transactions","Transactions"],["people","People"],["savings","Savings"],["reports","Reports"]];
+  const [mf,mt]=period("month"), monthName=fmtDay(day,{month:"long"});
   let body="";
-  if(moneyTab==="customers"){
-    const list=unpaidCredit(), total=list.reduce((t,s)=>t+s.qty*s.price,0), today=todayISO();
-    body=`<div class="card"><div><div class="money-big">${cedi(total)}</div><span class="small muted">customers owe you for pay-later sales</span></div>
-      ${list.length?`<ul class="list">${list.map(s=>{const late=s.due_date&&s.due_date<today, dueToday=s.due_date===today;return `<li><button class="item" data-credit="${s.id}"><span class="grow"><span class="t">${esc(s.customer||"Customer")}</span><span class="s">${esc(pName(s))} × ${s.qty} · sold ${fmtDay(s.day)} by ${esc(mName(s.marketer_id))}</span>
-        <span class="row" style="gap:6px;margin-top:4px">${s.due_date?`<span class="pill ${late?"warn":dueToday?"good":""}">${late?"late, was due ":dueToday?"due today, ":"due "}${fmtDay(s.due_date,{weekday:"short",day:"numeric",month:"short"})}</span>`:""}</span></span>
-        <span class="r"><b>${cedi(s.qty*s.price)}</b><br><span class="small muted">Mark paid</span></span></button></li>`}).join("")}</ul>`:`<p class="empty">No customer owes you. Choose <b>Pay later</b> when you record a sale on credit.</p>`}
-    </div>`;
-  }else if(moneyTab==="owed"){
-    const rows=S.marketers.map(m=>({m,...moneyOf(m.id)})).filter(x=>x.owes>0.009).sort((a,b)=>b.owes-a.owes);
-    const total=rows.reduce((t,x)=>t+x.owes,0);
-    const recent=S.payments.slice().sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,15);
-    body=`<div class="wide">
-      <div class="card"><div class="row between"><div><div class="money-big">${cedi(total)}</div><span class="small muted">owed to you by marketers</span></div><button class="btn-primary" id="mnPay">Receive money</button></div>
-        ${rows.length?`<ul class="list">${rows.map(x=>`<li><button class="item" data-pay="${x.m.id}"><span class="avatar">${esc(initials(x.m.name))}</span><span class="grow"><span class="t">${esc(x.m.name)}</span><span class="s">sold ${cedi(x.soldValue)} · paid ${cedi(x.paid)}</span></span><span class="r"><b>${cedi(x.owes)}</b><br><span class="small muted">Receive</span></span></button></li>`).join("")}</ul>`:`<p class="empty">Nobody owes you anything.</p>`}
-        <p class="small muted">Owed = value of items they sold − money they've handed to you.</p>
-      </div>
-      <div class="card"><h2>Money received</h2>${recent.length?`<ul class="list">${recent.map(p=>`<li><button class="item" data-paydel="${p.id}"><span class="grow"><span class="t">${esc(mName(p.marketer_id))}</span><span class="s">${fmtDay(p.day)} · ${p.method==="momo"?"MoMo":"Cash"}${p.note?" · "+esc(p.note):""}</span></span><span class="r"><b>${cedi(p.amount)}</b></span></button></li>`).join("")}</ul>`:`<p class="empty">No payments recorded in these months.</p>`}</div></div>`;
-  }else if(moneyTab==="savings"){
-    const rows=S.marketers.map(m=>({m,s:moneyOf(m.id).saved})).filter(x=>x.s>0.009).sort((a,b)=>b.s-a.s);
-    const total=rows.reduce((t,x)=>t+x.s,0);
-    body=`<div class="card"><div class="row between"><div><div class="money-big">${cedi(total)}</div><span class="small muted">savings you're holding</span></div><div class="row"><button class="btn-primary" id="svAdd">Add savings</button><button id="svOut">Pay out</button></div></div>
-      ${rows.length?`<ul class="list">${rows.map(x=>`<li><button class="item" data-open-m="${x.m.id}"><span class="avatar">${esc(initials(x.m.name))}</span><span class="grow t">${esc(x.m.name)}</span><span class="r"><b>${cedi(x.s)}</b></span></button></li>`).join("")}</ul>`:`<p class="empty">No savings yet.</p>`}</div>`;
-  }else if(moneyTab==="profit"){
-    const [f,t]=period("month"), mo=salesIn(f,t), pay=Number(S.settings?.pay||0);
-    const sales=sumVal(mo), cost=sumCost(mo), gross=sales-cost, mpay=sumQty(mo)*pay, net=gross-mpay;
+  if(moneyTab==="overview"){
+    const F=moneyFigures(mf,mt);
     const missing=liveProducts().filter(p=>!Number(p.cost));
-    body=`<div class="card"><h2>${fmtDay(day,{month:"long",year:"numeric"})}</h2>
-      <ul class="list">
-        <li><div class="item"><span class="grow">Sales</span><span class="r"><b>${cedi(sales)}</b></span></div></li>
-        <li><div class="item"><span class="grow">Cost of items sold</span><span class="r">− ${cedi(cost)}</span></div></li>
-        <li><div class="item"><span class="grow"><b>Gross profit</b></span><span class="r"><b>${cedi(gross)}</b></span></div></li>
-        ${pay>0?`<li><div class="item"><span class="grow">Marketers' pay (${sumQty(mo)} × ${cedi(pay)})</span><span class="r">− ${cedi(mpay)}</span></div></li>
-        <li><div class="item"><span class="grow"><b>What you keep</b></span><span class="r"><span class="money-big" style="font-size:1.6rem;color:${net>=0?"var(--good)":"var(--bad)"}">${cedi(net)}</span></span></div></li>`:""}
-      </ul>
-      ${missing.length?`<div class="alert info"><span>ℹ️</span><span>Set the <b>cost price</b> for ${missing.map(p=>esc(p.name)).join(", ")} in Settings, so profit is correct. Sales recorded before that count as zero cost.</span></div>`:""}
-    </div>`;
+    body=`
+      <div class="grid2 kpis">
+        <div class="tile"><b>${cedi(F.received)}</b><span>received in ${monthName}</span></div>
+        <div class="tile accent"><b>${cedi(F.toCollect)}</b><span>still to collect</span></div>
+        <div class="tile"><b>${cedi(F.spent)}</b><span>spent in ${monthName}</span></div>
+        <div class="tile"><b style="color:${F.net>=0?"var(--good)":"var(--bad)"}">${cedi(F.net)}</b><span>estimated profit</span></div>
+      </div>
+      <div class="fab-row" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+        <button class="qa" id="ovPay">${icon.cash}Receive money</button>
+        <button class="qa" id="ovExp">${icon.back}Record expense</button>
+        <button class="qa" id="ovCust">${icon.person}Customers who owe</button>
+      </div>
+      <div class="wide">
+        <div class="card"><h2>Where the money is</h2>
+          <ul class="list">
+            ${row("Cash with marketers",cedi(F.withMarketers),"collected from customers, not yet handed to you",{strong:true})}
+            ${row("Customers owe you",cedi(F.customersOwe),`${unpaidCredit().length} pay-later sale${unpaidCredit().length===1?"":"s"}`,{strong:true})}
+            ${row("Stock not yet sold",F.stockUnits+" items",F.stockUnits?`worth ${cedi(F.stockPrice)} at selling price${F.stockCost?` · cost you ${cedi(F.stockCost)}`:""}`:"")}
+            ${row("Marketers' savings you hold",cedi(F.savingsHeld),"their money: you pay it back to them")}
+          </ul>
+          <p class="small muted">These are separate. Stock is not money until it's sold, and savings belong to your marketers.</p>
+        </div>
+        <div class="card"><h2>Profit in ${monthName}</h2>
+          <ul class="list">
+            ${row("Sales",cedi(F.revenue),sumQty(F.sales)+" items, including pay-later")}
+            ${row("Cost of items sold","− "+cedi(F.cost))}
+            ${F.pay>0?row("Marketers' pay","− "+cedi(F.mpay),`${sumQty(F.sales)} × ${cedi(F.pay)}`):""}
+            ${row("Expenses","− "+cedi(F.expenses))}
+            ${row("Estimated profit",cedi(F.net),"",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
+          </ul>
+          ${missing.length?`<div class="alert info"><span>ℹ️</span><span>Set the <b>cost price</b> for ${missing.map(p=>esc(p.name)).join(", ")} (Settings ⚙), or profit will look higher than it is.</span></div>`:""}
+        </div>
+        <div class="card full"><h2>Money in and out in ${monthName}</h2>
+          <ul class="list">
+            ${row("Handed in by marketers","+ "+cedi(F.received),"money in",{color:"var(--good)"})}
+            ${row("Savings received","+ "+cedi(F.savIn),"money in",{color:"var(--good)"})}
+            ${row("Stock bought","− "+cedi(F.stockBought),"money out · from Stock in costs")}
+            ${row("Expenses","− "+cedi(F.expenses),"money out")}
+            ${row("Savings paid out","− "+cedi(F.savOut),"money out")}
+            ${row("Net cash movement",cedi(F.received+F.savIn-F.stockBought-F.expenses-F.savOut),"what came in minus what went out",{strong:true})}
+          </ul>
+          <p class="small muted">Received money is not profit. Profit is worked out above from sales and costs.</p>
+        </div>
+      </div>`;
+  }else if(moneyTab==="transactions"){
+    const F=moneyFigures(mf,mt);
+    const tx=[
+      ...F.sales.map(s=>({k:"sales",d:s.day,c:s.created_at,t:`${esc(mName(s.marketer_id))} sold ${esc(pName(s))} × ${s.qty}`,s:methodLabel(s),v:cedi(s.qty*s.price),col:"",open:()=>saleEdit(s)})),
+      ...F.pays.map(p=>({k:"in",d:p.day,c:p.created_at,t:`${esc(mName(p.marketer_id))} handed in money`,s:p.method==="momo"?"MoMo":"Cash",v:"+"+cedi(p.amount),col:"var(--good)",open:()=>paymentDetail(p)})),
+      ...F.exps.map(e=>({k:"exp",d:e.day,c:e.created_at,t:esc(e.category),s:esc(e.note||"Expense"),v:"−"+cedi(e.amount),col:"var(--warn)",open:()=>expenseSheet(e)})),
+      ...F.savs.map(v=>({k:"sav",d:v.day,c:v.created_at,t:`${esc(mName(v.marketer_id))} ${v.amount<0?"savings paid out":"saved"}`,s:esc(v.note||""),v:(v.amount<0?"−":"+")+cedi(Math.abs(v.amount)),col:"",open:()=>savingDetail(v)})),
+      ...S.moves.filter(m=>m.day>=mf&&m.day<=mt).map(mv=>({k:"stock",d:mv.day,c:mv.created_at,t:{in:"Stock in",out:"Given to "+esc(mName(mv.marketer_id)),return:"Returned by "+esc(mName(mv.marketer_id)),adjust:"Count correction"}[mv.kind]+" · "+esc(P(mv.product_id)?.name||"Product"),s:mv.kind==="in"&&mv.unit_cost?`${mv.qty} × ${cedi(mv.unit_cost)} = ${cedi(mv.qty*mv.unit_cost)}`:esc(mv.note||""),v:(mv.kind==="out"?"→ ":mv.kind==="return"?"← ":mv.qty>0?"+":"")+mv.qty+" items",col:"",open:()=>moveSheet(mv)}))
+    ].filter(x=>txFilter==="all"||x.k===txFilter).sort((a,b)=>b.d.localeCompare(a.d)||String(b.c).localeCompare(String(a.c)));
+    const groups={};tx.forEach(x=>(groups[x.d]=groups[x.d]||[]).push(x));
+    const filters=[["all","All"],["sales","Sales"],["in","Money in"],["exp","Expenses"],["stock","Stock"],["sav","Savings"]];
+    body=`<div class="row between"><p class="muted">${monthName} · ${tx.length} entr${tx.length===1?"y":"ies"}</p><button class="btn-primary" id="txExp">+ Expense</button></div>
+      <div class="chips">${filters.map(([k,l])=>`<button class="chip" data-chip="txf" data-v="${k}" aria-pressed="${txFilter===k}">${l}</button>`).join("")}</div>
+      ${tx.length?Object.keys(groups).map(d=>`<div class="card" style="padding:4px 16px"><div class="eyebrow" style="padding-top:12px">${fmtDay(d,{weekday:"long",day:"numeric",month:"short"})}</div><ul class="list">${groups[d].map((x,i)=>`<li><button class="item" data-tx="${d}|${i}"><span class="grow"><span class="t">${x.t}</span>${x.s?`<span class="s">${x.s}</span>`:""}</span><span class="r" style="${x.col?"color:"+x.col:""}"><b>${x.v}</b></span></button></li>`).join("")}</ul></div>`).join(""):`<div class="card"><p class="empty">Nothing recorded in ${monthName}${txFilter!=="all"?" for this filter":""}.</p></div>`}
+      <p class="small muted">Tap any entry to change or delete it. Change the date at the top to see another month.</p>`;
+    r.innerHTML=`<div class="seg">${tabs.map(([k,l])=>`<button data-seg="mt" data-v="${k}" aria-pressed="${moneyTab===k}">${l}</button>`).join("")}</div>${body}`;
+    r.querySelectorAll("[data-tx]").forEach(b=>{const [d,i]=b.dataset.tx.split("|");b.onclick=()=>groups[d][Number(i)].open()});
+    wireChips(r,"txf",v=>{txFilter=v;renderMoney()});
+    $("txExp").onclick=()=>expenseSheet();
+    wireSeg(r,"mt",v=>{moneyTab=v;renderMoney()});
+    return;
+  }else if(moneyTab==="people"){
+    const ms=S.marketers.map(m=>({m,...moneyOf(m.id),units:holdingsOf(m.id).reduce((a,x)=>a+x.n,0)})).filter(x=>!x.m.removed_at||Math.abs(x.owes)>0.009||x.credit>0.009||x.saved>0.009||x.units).sort((a,b)=>b.owes-a.owes);
+    const list=unpaidCredit(), today=todayISO();
+    body=`<div class="wide">
+      <div class="card"><div class="row between"><h2>Marketers</h2><button class="btn-primary" id="mnPay">Receive money</button></div>
+        ${ms.length?`<ul class="list">${ms.map(x=>`<li><button class="item" data-open-m="${x.m.id}"><span class="avatar">${esc(initials(x.m.name))}</span><span class="grow"><span class="t">${esc(x.m.name)}${removedPill(x.m)}</span>
+          <span class="row" style="gap:6px;margin-top:4px">${x.owes>0.009?`<span class="pill warn">cash to hand in ${cedi(x.owes)}</span>`:x.owes<-0.009?`<span class="pill good">paid ahead ${cedi(-x.owes)}</span>`:`<span class="pill good">settled</span>`}${x.credit>0.009?`<span class="pill">customers owe ${cedi(x.credit)}</span>`:""}${x.units?`<span class="pill">holding ${x.units}</span>`:""}</span></span><span class="r muted">›</span></button></li>`).join("")}</ul>`:`<p class="empty">No marketers yet.</p>`}
+        <p class="small muted">Tap a marketer for their full settlement and history.</p>
+      </div>
+      <div class="card"><div><h2>Customers who owe you</h2><span class="small muted">Pay-later sales · ${cedi(list.reduce((t,s)=>t+s.qty*s.price,0))} in total</span></div>
+        ${list.length?`<ul class="list">${list.map(s=>{const late=s.due_date&&s.due_date<today, dueToday=s.due_date===today;return `<li><button class="item" data-credit="${s.id}"><span class="grow"><span class="t">${esc(s.customer||"Customer")}</span><span class="s">${esc(pName(s))} × ${s.qty} · sold ${fmtDay(s.day)} by ${esc(mName(s.marketer_id))}</span>
+          ${s.due_date?`<span class="row" style="gap:6px;margin-top:4px"><span class="pill ${late?"warn":dueToday?"good":""}">${late?"late, was due ":dueToday?"due today, ":"due "}${fmtDay(s.due_date,{weekday:"short",day:"numeric",month:"short"})}</span></span>`:""}</span>
+          <span class="r"><b>${cedi(s.qty*s.price)}</b><br><span class="small muted">Mark paid</span></span></button></li>`}).join("")}</ul>`:`<p class="empty">No customer owes you. Choose <b>Pay later</b> when you record a sale on credit.</p>`}
+      </div></div>`;
+  }else if(moneyTab==="savings"){
+    const rows=S.marketers.map(m=>({m,s:moneyOf(m.id).saved})).filter(x=>Math.abs(x.s)>0.009).sort((a,b)=>b.s-a.s);
+    const total=rows.reduce((t,x)=>t+x.s,0);
+    const recent=S.savings.slice().sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,15);
+    body=`<div class="wide"><div class="card"><div class="row between"><div><div class="money-big">${cedi(total)}</div><span class="small muted">marketers' savings you're holding</span></div><div class="row"><button class="btn-primary" id="svAdd">Add savings</button><button id="svOut">Pay out</button></div></div>
+      ${rows.length?`<ul class="list">${rows.map(x=>`<li><button class="item" data-open-m="${x.m.id}"><span class="avatar">${esc(initials(x.m.name))}</span><span class="grow"><span class="t">${esc(x.m.name)}${removedPill(x.m)}</span></span><span class="r"><b>${cedi(x.s)}</b></span></button></li>`).join("")}</ul>`:`<p class="empty">No savings yet.</p>`}
+      <p class="small muted">This money belongs to your marketers. It isn't income or profit.</p></div>
+      <div class="card"><h2>Recent savings entries</h2>${recent.length?`<ul class="list">${recent.map(v=>`<li><button class="item" data-sav="${v.id}"><span class="grow"><span class="t">${esc(mName(v.marketer_id))}</span><span class="s">${fmtDay(v.day)}${v.note?" · "+esc(v.note):""}</span></span><span class="r" style="color:${v.amount<0?"var(--warn)":"var(--good)"}"><b>${v.amount<0?"−":"+"}${cedi(Math.abs(v.amount))}</b></span></button></li>`).join("")}</ul>`:`<p class="empty">None in these months.</p>`}</div></div>`;
   }else{
-    const [f,t]=period(reportPeriod), rows=salesIn(f,t), pay=Number(S.settings?.pay||0);
-    const pays=S.payments.filter(p=>p.day>=f&&p.day<=t);
-    const agg=S.marketers.map(m=>{const r=rows.filter(s=>s.marketer_id===m.id);return{m,u:sumQty(r),v:sumVal(r),d:new Set(r.map(s=>s.day)).size,p:pays.filter(p=>p.marketer_id===m.id).reduce((a,p)=>a+Number(p.amount),0)}}).filter(x=>x.u||x.p).sort((a,b)=>b.u-a.u);
-    const byP={};rows.forEach(s=>{const k=pName(s);byP[k]=byP[k]||{u:0,v:0};byP[k].u+=Number(s.qty);byP[k].v+=s.qty*s.price});
+    const [f,t]=period(reportPeriod), F=moneyFigures(f,t), rows=F.sales;
+    const agg=S.marketers.map(m=>{const r=rows.filter(s=>s.marketer_id===m.id);return{m,u:sumQty(r),v:sumVal(r),pr:sumVal(r)-sumCost(r),d:new Set(r.map(s=>s.day)).size,p:F.pays.filter(p=>p.marketer_id===m.id).reduce((a,p)=>a+Number(p.amount),0)}}).filter(x=>x.u||x.p).sort((a,b)=>b.u-a.u);
+    const byP={};rows.forEach(s=>{const k=pName(s);byP[k]=byP[k]||{u:0,v:0,pr:0};byP[k].u+=Number(s.qty);byP[k].v+=s.qty*s.price;byP[k].pr+=s.qty*(s.price-(s.cost||0))});
     const pk=Object.keys(byP).sort((a,b)=>byP[b].u-byP[a].u);
+    const byC={};F.exps.forEach(e=>{byC[e.category]=(byC[e.category]||0)+Number(e.amount)});
     body=`<div class="seg"><button data-seg="rp" data-v="today" aria-pressed="${reportPeriod==="today"}">Day</button><button data-seg="rp" data-v="week" aria-pressed="${reportPeriod==="week"}">Week</button><button data-seg="rp" data-v="month" aria-pressed="${reportPeriod==="month"}">Month</button></div>
       <p class="muted">${f===t?fmtDay(f,{weekday:"long",day:"numeric",month:"long"}):fmtDay(f)+" – "+fmtDay(t,{day:"numeric",month:"short",year:"numeric"})}</p>
       <div class="wide">
-      <div class="card full"><h2>By marketer</h2><div class="tbl"><table><thead><tr><th>Marketer</th><th class="r">Items</th><th class="r">Days</th><th class="r">Sales</th><th class="r">Paid in</th>${pay>0?'<th class="r">Their pay</th>':""}</tr></thead>
-        <tbody>${agg.length?agg.map(x=>`<tr><td>${esc(x.m.name)}</td><td class="r">${x.u}</td><td class="r">${x.d}</td><td class="r">${cedi(x.v)}</td><td class="r">${cedi(x.p)}</td>${pay>0?`<td class="r">${cedi(x.u*pay)}</td>`:""}</tr>`).join(""):`<tr><td colspan="6" class="empty">No sales in this period.</td></tr>`}</tbody>
-        ${agg.length?`<tfoot><tr><th>Total</th><th class="r">${sumQty(rows)}</th><th></th><th class="r">${cedi(sumVal(rows))}</th><th class="r">${cedi(pays.reduce((a,p)=>a+Number(p.amount),0))}</th>${pay>0?`<th class="r">${cedi(sumQty(rows)*pay)}</th>`:""}</tr></tfoot>`:""}</table></div></div>
-      <div class="card"><h2>By product</h2><div class="tbl"><table><thead><tr><th>Product</th><th class="r">Sold</th><th class="r">Sales</th></tr></thead><tbody>${pk.length?pk.map(k=>`<tr><td>${esc(k)}</td><td class="r">${byP[k].u}</td><td class="r">${cedi(byP[k].v)}</td></tr>`).join(""):`<tr><td colspan="3" class="empty">Nothing sold.</td></tr>`}</tbody></table></div></div>
+      <div class="card"><h2>Profit</h2><ul class="list">
+        ${row("Sales",cedi(F.revenue),sumQty(rows)+" items")}
+        ${row("Cost of items sold","− "+cedi(F.cost))}
+        ${row("Gross profit",cedi(F.gross),"",{strong:true})}
+        ${F.pay>0?row("Marketers' pay","− "+cedi(F.mpay)):""}
+        ${row("Expenses","− "+cedi(F.expenses))}
+        ${row("Estimated profit",cedi(F.net),"",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
+      </ul></div>
+      <div class="card"><h2>Expenses</h2>${Object.keys(byC).length?`<ul class="list">${Object.keys(byC).sort((a,b)=>byC[b]-byC[a]).map(c=>row(esc(c),cedi(byC[c]))).join("")}</ul>`:`<p class="empty">No expenses in this period.</p>`}</div>
+      <div class="card full"><h2>By marketer</h2><div class="tbl"><table><thead><tr><th>Marketer</th><th class="r">Items</th><th class="r">Days</th><th class="r">Sales</th><th class="r">Profit</th><th class="r">Handed in</th>${F.pay>0?'<th class="r">Their pay</th>':""}</tr></thead>
+        <tbody>${agg.length?agg.map(x=>`<tr><td>${esc(x.m.name)}</td><td class="r">${x.u}</td><td class="r">${x.d}</td><td class="r">${cedi(x.v)}</td><td class="r">${cedi(x.pr)}</td><td class="r">${cedi(x.p)}</td>${F.pay>0?`<td class="r">${cedi(x.u*F.pay)}</td>`:""}</tr>`).join(""):`<tr><td colspan="7" class="empty">No sales in this period.</td></tr>`}</tbody>
+        ${agg.length?`<tfoot><tr><th>Total</th><th class="r">${sumQty(rows)}</th><th></th><th class="r">${cedi(F.revenue)}</th><th class="r">${cedi(F.gross)}</th><th class="r">${cedi(F.received)}</th>${F.pay>0?`<th class="r">${cedi(F.mpay)}</th>`:""}</tr></tfoot>`:""}</table></div></div>
+      <div class="card full"><h2>By product</h2><div class="tbl"><table><thead><tr><th>Product</th><th class="r">Sold</th><th class="r">Sales</th><th class="r">Profit</th></tr></thead><tbody>${pk.length?pk.map(k=>`<tr><td>${esc(k)}</td><td class="r">${byP[k].u}</td><td class="r">${cedi(byP[k].v)}</td><td class="r">${cedi(byP[k].pr)}</td></tr>`).join(""):`<tr><td colspan="4" class="empty">Nothing sold.</td></tr>`}</tbody></table></div></div>
       </div>`;
   }
   r.innerHTML=`<div class="seg">${tabs.map(([k,l])=>`<button data-seg="mt" data-v="${k}" aria-pressed="${moneyTab===k}">${l}</button>`).join("")}</div>${body}`;
   wireSeg(r,"mt",v=>{moneyTab=v;renderMoney()});
   wireSeg(r,"rp",v=>{reportPeriod=v;renderMoney()});
+  $("ovPay")&&($("ovPay").onclick=()=>paymentSheet());
+  $("ovExp")&&($("ovExp").onclick=()=>expenseSheet());
+  $("ovCust")&&($("ovCust").onclick=()=>{moneyTab="people";renderMoney()});
   $("mnPay")&&($("mnPay").onclick=()=>paymentSheet());
   $("svAdd")&&($("svAdd").onclick=()=>savingsSheet(null,false));
   $("svOut")&&($("svOut").onclick=()=>savingsSheet(null,true));
-  r.querySelectorAll("[data-pay]").forEach(b=>b.onclick=()=>paymentSheet(b.dataset.pay));
   r.querySelectorAll("[data-credit]").forEach(b=>b.onclick=()=>creditPaidSheet(unpaidCredit().find(s=>String(s.id)===b.dataset.credit)));
   r.querySelectorAll("[data-open-m]").forEach(b=>b.onclick=()=>marketerPage(b.dataset.openM));
-  r.querySelectorAll("[data-paydel]").forEach(b=>b.onclick=()=>{const p=S.payments.find(x=>String(x.id)===b.dataset.paydel);
-    openSheet("Payment",`<p>${esc(mName(p.marketer_id))} paid <b>${cedi(p.amount)}</b> by ${p.method==="momo"?"MoMo":"cash"} on ${fmtDay(p.day,{day:"numeric",month:"long"})}.</p>${p.note?`<p class="muted">${esc(p.note)}</p>`:""}<button class="btn-danger btn-block" id="pdDel">Delete this payment</button>`,()=>confirmBtn($("pdDel"),"Tap again to delete",()=>run($("pdDel"),"delete the payment",()=>del("payments",p.id),"Payment deleted")))});
+  r.querySelectorAll("[data-sav]").forEach(b=>b.onclick=()=>savingDetail(S.savings.find(x=>String(x.id)===b.dataset.sav)));
 }
 
 function creditPaidSheet(s){
