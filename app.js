@@ -719,10 +719,14 @@ function renderMoney(){
             ${row("Cost of items sold","− "+cedi(F.cost))}
             ${row("Gross profit",cedi(F.gross),"sales − cost",{strong:true})}
             ${row("Total savings","+ "+cedi(F.savIn),"saved this month")}
-            ${F.expenses?row("Expenses","− "+cedi(F.expenses)):""}
-            ${row("Estimated profit",cedi(F.net),"gross profit + savings"+(F.expenses?" − expenses":""),{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
+            ${row("Expenses","− "+cedi(F.expenses),F.exps.length?`${F.exps.length} recorded this month`:"none recorded yet")}
+            ${row("Estimated profit",cedi(F.net),"gross profit + savings − expenses",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
           </ul>
           ${missing.length?`<div class="alert info"><span>ℹ️</span><span>Set the <b>cost price</b> for ${missing.map(p=>esc(p.name)).join(", ")} (Settings ⚙), or profit will look higher than it is.</span></div>`:""}
+        </div>
+        <div class="card"><div class="row between"><h2>Expenses in ${monthName}</h2><button class="btn-primary" id="ovExp2">+ Record</button></div>
+          ${(()=>{const g={};F.exps.forEach(e=>{g[e.category]=(g[e.category]||0)+Number(e.amount)});const k=Object.keys(g).sort((a,b)=>g[b]-g[a]);
+            return k.length?`<ul class="list">${k.map(c=>row(esc(c),cedi(g[c]))).join("")}${row("Total",cedi(F.expenses),"",{strong:true})}</ul>`:`<p class="empty">No expenses recorded in ${monthName} yet. Tap <b>+ Record</b> to save today's transport and food.</p>`})()}
         </div>
         <div class="card full"><h2>Money in and out in ${monthName}</h2>
           <ul class="list">
@@ -758,12 +762,13 @@ function renderMoney(){
     body=`<div class="row between"><p class="muted">${monthName} · ${tx.length} entr${tx.length===1?"y":"ies"}</p><button class="btn-primary" id="txExp">+ Expenses</button></div>
       <div class="chips">${filters.map(([k,l])=>`<button class="chip" data-chip="txf" data-v="${k}" aria-pressed="${txFilter===k}">${l}</button>`).join("")}</div>
       ${flowCard}
-      ${tx.length?Object.keys(groups).map(d=>`<div class="card" style="padding:4px 16px"><div class="eyebrow" style="padding-top:12px">${fmtDay(d,{weekday:"long",day:"numeric",month:"short"})}</div><ul class="list">${groups[d].map((x,i)=>`<li><button class="item" data-tx="${d}|${i}"><span class="grow"><span class="t">${x.t}</span>${x.s?`<span class="s">${x.s}</span>`:""}</span><span class="r" style="${x.col?"color:"+x.col:""}"><b>${x.v}</b></span></button></li>`).join("")}</ul></div>`).join(""):`<div class="card"><p class="empty">Nothing recorded in ${monthName}${txFilter!=="all"?" for this filter":""}.</p></div>`}
+      ${tx.length?Object.keys(groups).map(d=>`<div class="card" style="padding:4px 16px"><div class="eyebrow" style="padding-top:12px">${fmtDay(d,{weekday:"long",day:"numeric",month:"short"})}</div><ul class="list">${groups[d].map((x,i)=>`<li><button class="item" data-tx="${d}|${i}"><span class="grow"><span class="t">${x.t}</span>${x.s?`<span class="s">${x.s}</span>`:""}</span><span class="r" style="${x.col?"color:"+x.col:""}"><b>${x.v}</b></span></button></li>`).join("")}</ul></div>`).join(""):`<div class="card"><p class="empty">Nothing recorded in ${monthName}${txFilter!=="all"?" for this filter":""}.</p>${(txFilter==="exp"||txFilter==="out")?`<button class="btn-primary" id="txExp2">Record today's expenses</button>`:""}</div>`}
       <p class="small muted">Tap any entry to change or delete it. Change the date at the top to see another month.</p>`;
     r.innerHTML=`<div class="seg">${tabs.map(([k,l])=>`<button data-seg="mt" data-v="${k}" aria-pressed="${moneyTab===k}">${l}</button>`).join("")}</div>${body}`;
     r.querySelectorAll("[data-tx]").forEach(b=>{const [d,i]=b.dataset.tx.split("|");b.onclick=()=>groups[d][Number(i)].open()});
     wireChips(r,"txf",v=>{txFilter=v;renderMoney()});
     $("txExp").onclick=()=>dailyExpenseSheet();
+    $("txExp2")&&($("txExp2").onclick=()=>dailyExpenseSheet());
     wireSeg(r,"mt",v=>{moneyTab=v;renderMoney()});
     return;
   }else if(moneyTab==="people"){
@@ -802,8 +807,8 @@ function renderMoney(){
         ${row("Cost of items sold","− "+cedi(F.cost))}
         ${row("Gross profit",cedi(F.gross),"sales − cost",{strong:true})}
         ${row("Total savings","+ "+cedi(F.savIn))}
-        ${F.expenses?row("Expenses","− "+cedi(F.expenses)):""}
-        ${row("Estimated profit",cedi(F.net),"gross profit + savings"+(F.expenses?" − expenses":""),{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
+        ${row("Expenses","− "+cedi(F.expenses))}
+        ${row("Estimated profit",cedi(F.net),"gross profit + savings − expenses",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
       </ul></div>
       <div class="card"><h2>Expenses</h2>${Object.keys(byC).length?`<ul class="list">${Object.keys(byC).sort((a,b)=>byC[b]-byC[a]).map(c=>row(esc(c),cedi(byC[c]))).join("")}</ul>`:`<p class="empty">No expenses in this period.</p>`}</div>
       <div class="card full"><h2>By marketer</h2><div class="tbl"><table><thead><tr><th>Marketer</th><th class="r">Items</th><th class="r">Days</th><th class="r">Sales</th><th class="r">Profit</th><th class="r">Handed in</th><th class="r">Their pay</th></tr></thead>
@@ -818,6 +823,7 @@ function renderMoney(){
   wireSeg(r,"rp",v=>{reportPeriod=v;renderMoney()});
   $("ovPay")&&($("ovPay").onclick=()=>paymentSheet());
   $("ovExp")&&($("ovExp").onclick=()=>dailyExpenseSheet());
+  $("ovExp2")&&($("ovExp2").onclick=()=>dailyExpenseSheet());
   $("ovCust")&&($("ovCust").onclick=()=>{moneyTab="people";renderMoney()});
   $("mnPay")&&($("mnPay").onclick=()=>paymentSheet());
   $("svAdd")&&($("svAdd").onclick=()=>savingsSheet(null,false));
