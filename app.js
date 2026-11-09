@@ -190,6 +190,7 @@ function renderHome(){
   const today=salesOn(day), pays=S.payments.filter(p=>p.day===day);
   const stockTotal=liveProducts().reduce((t,p)=>t+Math.max(0,stockOf(p.id).total),0);
   const tracked=liveProducts().some(p=>stockOf(p.id).tracked);
+  const untracked=liveProducts().filter(p=>{const s=stockOf(p.id);return !s.tracked&&s.sold>0});
   const [f,t]=period("month"), mo=salesIn(f,t);
   const low=liveProducts().filter(p=>{const s=stockOf(p.id);return s.tracked&&s.total<=Number(p.low_stock||0)});
   const owing=S.marketers.map(m=>({m,o:moneyOf(m.id).owes})).filter(x=>x.o>0.009).sort((a,b)=>b.o-a.o);
@@ -215,9 +216,10 @@ function renderHome(){
       <button class="qa" data-qa="addm">${icon.person}Add marketer</button>
     </div>
     <div class="wide">
-      ${(low.length||owing.length||!tracked||credDue.length)?`<div class="card"><h2>Needs attention</h2><div class="stack">
+      ${(low.length||owing.length||!tracked||credDue.length||untracked.length)?`<div class="card"><h2>Needs attention</h2><div class="stack">
         ${!tracked?`<div class="alert info"><span>📦</span><span><b>Set up your stock.</b> Tap <b>Stock in</b> and enter how many of each product you have, so the app can count what's left.</span></div>`:""}
         ${credDue.map(s=>`<button class="alert" style="width:100%;text-align:left;border:0;font-weight:400;min-height:0" data-credit="${s.id}"><span>🧾</span><span><b>${esc(s.customer||"A customer")}</b> ${s.due_date<todayISO()?"was due to pay":"is due to pay"} ${cedi(s.qty*s.price)} ${s.due_date===todayISO()?"today":fmtDay(s.due_date,{weekday:"long"})}. Tap when paid.</span></button>`).join("")}
+        ${tracked?untracked.map(p=>`<div class="alert info"><span>📦</span><span><b>${esc(p.name)}</b> has ${stockOf(p.id).sold} sold but no stock recorded. In Stock, tap <b>Correct count</b> and enter how many you have.</span></div>`).join(""):""}
         ${low.map(p=>`<div class="alert"><span>⚠️</span><span><b>${esc(p.name)}</b> is low: ${Math.max(0,stockOf(p.id).total)} left.</span></div>`).join("")}
         ${owing.slice(0,3).map(x=>`<div class="alert info"><span>💰</span><span><b>${esc(x.m.name)}</b> owes ${cedi(x.o)}.</span></div>`).join("")}
       </div></div>`:""}
@@ -525,7 +527,7 @@ function marketerPage(mid){
         ${line("Sales recorded",cedi(mo.allSales))}
         ${line("Paid by customers (cash or MoMo)",cedi(mo.soldValue))}
         ${line("Handed over to you","− "+cedi(mo.paid))}
-        ${line(mo.owes<-0.009?"Paid ahead":"Cash still with them",cedi(Math.abs(mo.owes)),"collected from customers, not yet handed in",true)}
+        ${line(mo.owes<-0.009?"Paid ahead":"Cash still with them",cedi(Math.abs(mo.owes)),mo.owes<-0.009?"handed in more than their cash and MoMo sales: check for savings or pay-later money inside a payment":"collected from customers, not yet handed in",true)}
         ${line("Customers owe through them",cedi(mo.credit),"pay-later sales not paid yet")}
         ${line("Unsold stock with them",units+" items",units?`worth ${cedi(unsoldPrice)} at selling price${unsoldCost?` · ${cedi(unsoldCost)} at cost`:""}`:"")}
         ${line("Profit from their sales",cedi(mo.profit),"selling price − your cost")}
