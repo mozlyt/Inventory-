@@ -631,7 +631,7 @@ function moneyFigures(f,t){
   let stockUnits=0,stockCost=0,stockPrice=0;
   S.products.forEach(p=>{const n=Math.max(0,stockOf(p.id).total);stockUnits+=n;stockCost+=n*Number(p.cost||0);stockPrice+=n*Number(p.price||0)});
   const savingsHeld=S.marketers.reduce((a,m)=>a+moneyOf(m.id).saved,0);
-  const mpay=savIn, profit=gross-mpay-expenses;  // a marketer's pay is the savings put aside for them
+  const mpay=savIn, profit=gross+savIn-expenses;  // estimated profit = gross profit + savings (− expenses, if any)
   return {sales,pays,exps,savs,received,expenses,stockBought,spent:stockBought+expenses,savIn,savOut,revenue,cost,gross,mpay,net:profit,withMarketers,customersOwe,toCollect:withMarketers+customersOwe,stockUnits,stockCost,stockPrice,savingsHeld};
 }
 const row=(label,val,sub,opts={})=>`<li><div class="item"><span class="grow"><span class="${opts.strong?"t":""}">${label}</span>${sub?`<span class="s" style="white-space:normal">${sub}</span>`:""}</span><span class="r" ${opts.color?`style="color:${opts.color}"`:""}>${opts.strong?`<b>${val}</b>`:val}</span></div></li>`;
@@ -647,10 +647,10 @@ function renderMoney(){
     const missing=liveProducts().filter(p=>!Number(p.cost));
     body=`
       <div class="grid2 kpis">
-        <div class="tile"><b>${cedi(F.received)}</b><span>received in ${monthName}</span></div>
-        <div class="tile accent"><b>${cedi(F.toCollect)}</b><span>still to collect</span></div>
-        <div class="tile"><b>${cedi(F.spent)}</b><span>spent in ${monthName}</span></div>
-        <div class="tile"><b style="color:${F.net>=0?"var(--good)":"var(--bad)"}">${cedi(F.net)}</b><span>estimated profit</span></div>
+        <div class="tile"><b>${cedi(F.gross)}</b><span>gross profit</span></div>
+        <div class="tile"><b>${cedi(F.savIn)}</b><span>total savings</span></div>
+        <div class="tile accent"><b style="color:${F.net>=0?"var(--good)":"var(--bad)"}">${cedi(F.net)}</b><span>estimated profit</span></div>
+        <div class="tile"><b>${cedi(F.toCollect)}</b><span>still to collect</span></div>
       </div>
       <div class="fab-row" style="grid-template-columns:repeat(3,minmax(0,1fr))">
         <button class="qa" id="ovPay">${icon.cash}Receive money</button>
@@ -671,9 +671,10 @@ function renderMoney(){
           <ul class="list">
             ${row("Sales",cedi(F.revenue),sumQty(F.sales)+" items, including pay-later")}
             ${row("Cost of items sold","− "+cedi(F.cost))}
-            ${row("Marketers' pay","− "+cedi(F.mpay),"savings put aside for them this month")}
-            ${row("Expenses","− "+cedi(F.expenses))}
-            ${row("Estimated profit",cedi(F.net),"",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
+            ${row("Gross profit",cedi(F.gross),"sales − cost",{strong:true})}
+            ${row("Total savings","+ "+cedi(F.savIn),"saved this month")}
+            ${F.expenses?row("Expenses","− "+cedi(F.expenses)):""}
+            ${row("Estimated profit",cedi(F.net),"gross profit + savings"+(F.expenses?" − expenses":""),{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
           </ul>
           ${missing.length?`<div class="alert info"><span>ℹ️</span><span>Set the <b>cost price</b> for ${missing.map(p=>esc(p.name)).join(", ")} (Settings ⚙), or profit will look higher than it is.</span></div>`:""}
         </div>
@@ -744,10 +745,10 @@ function renderMoney(){
       <div class="card"><h2>Profit</h2><ul class="list">
         ${row("Sales",cedi(F.revenue),sumQty(rows)+" items")}
         ${row("Cost of items sold","− "+cedi(F.cost))}
-        ${row("Gross profit",cedi(F.gross),"",{strong:true})}
-        ${row("Marketers' pay","− "+cedi(F.mpay),"savings put aside for them")}
-        ${row("Expenses","− "+cedi(F.expenses))}
-        ${row("Estimated profit",cedi(F.net),"",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
+        ${row("Gross profit",cedi(F.gross),"sales − cost",{strong:true})}
+        ${row("Total savings","+ "+cedi(F.savIn))}
+        ${F.expenses?row("Expenses","− "+cedi(F.expenses)):""}
+        ${row("Estimated profit",cedi(F.net),"gross profit + savings"+(F.expenses?" − expenses":""),{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
       </ul></div>
       <div class="card"><h2>Expenses</h2>${Object.keys(byC).length?`<ul class="list">${Object.keys(byC).sort((a,b)=>byC[b]-byC[a]).map(c=>row(esc(c),cedi(byC[c]))).join("")}</ul>`:`<p class="empty">No expenses in this period.</p>`}</div>
       <div class="card full"><h2>By marketer</h2><div class="tbl"><table><thead><tr><th>Marketer</th><th class="r">Items</th><th class="r">Days</th><th class="r">Sales</th><th class="r">Profit</th><th class="r">Handed in</th><th class="r">Their pay</th></tr></thead>
