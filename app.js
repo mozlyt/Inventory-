@@ -86,7 +86,9 @@ const salesOn=d=>S.sales.filter(s=>s.day===d);
 const salesIn=(from,to)=>S.sales.filter(s=>s.day>=from&&s.day<=to);
 const sumQty=a=>a.reduce((t,s)=>t+Number(s.qty),0);
 const sumVal=a=>a.reduce((t,s)=>t+Number(s.qty)*Number(s.price),0);
-const sumCost=a=>a.reduce((t,s)=>t+Number(s.qty)*Number(s.cost||0),0);
+const unitCost=s=>Number(s.cost)||Number(S.products.find(p=>p.id===s.product_id)?.cost)||0;
+const sumCost=a=>a.reduce((t,s)=>t+Number(s.qty)*unitCost(s),0);
+const marginText=(price,cost)=>{price=Number(price)||0;cost=Number(cost)||0;if(!cost)return "Set your cost to see the margin";const p=price-cost;return `${cedi(p)} profit per item · ${price?Math.round(p/price*100):0}% margin · ${Math.round(p/cost*100)}% markup`};
 function stockOf(pid){
   const r=S.stock.find(x=>x.product_id===pid)||{inn:0,adj:0,outt:0,ret:0,sold:0};
   const total=Number(r.inn)+Number(r.adj)-Number(r.sold);
@@ -272,6 +274,7 @@ function renderSell(){
       </div>
       <label class="f">Note (optional)<input id="sfNote" placeholder="e.g. place of sale"></label>
       <div class="row between"><span class="muted">Total</span><span class="money-big" id="sfTotal">${cedi(sellForm.qty*(sellForm.price||0))}</span></div>
+      <p class="small muted" id="sfProfit"></p>
       ${h>0?`<p class="small muted">${esc(mName(sellForm.mid))} is holding ${h} of this product.</p>`:""}
       <button class="btn-primary btn-block" type="submit" id="sfBtn" style="min-height:54px;font-size:1.05rem">Record sale</button>
       <p class="small muted">Saves on ${day===todayISO()?"today's date":fmtDay(day,{day:"numeric",month:"long"})}. Change the date at the top to record an earlier day.</p>
@@ -279,7 +282,9 @@ function renderSell(){
     <div class="card"><div class="row between"><h2>Sales ${day===todayISO()?"today":"on "+fmtDay(day)}</h2><span class="pill">${sumQty(list)} items · ${cedi(sumVal(list))}</span></div>
       ${list.length?`<ul class="list">${list.map(s=>`<li><button class="item" data-sale="${s.id}"><span class="avatar">${esc(initials(mName(s.marketer_id)))}</span><span class="grow"><span class="t">${esc(mName(s.marketer_id))}</span><span class="s">${esc(pName(s))} × ${s.qty} · ${methodLabel(s)}${s.note?" · "+esc(s.note):""}</span></span><span class="r"><b>${cedi(s.qty*s.price)}</b><br><span class="small muted">Edit</span></span></button></li>`).join("")}</ul>`:`<p class="empty">No sales recorded yet.</p>`}
     </div></div>`;
-  const total=()=>{$("sfTotal").textContent=cedi(sellForm.qty*(Number($("sfPrice").value)||0))};
+  const total=()=>{const pr=Number($("sfPrice").value)||0,c=Number(P(sellForm.pid)?.cost)||0;$("sfTotal").textContent=cedi(sellForm.qty*pr);
+    $("sfProfit").textContent=c?`Your profit on this sale: ${cedi(sellForm.qty*(pr-c))} (cost ${cedi(c)} each${pr<c?" · selling below cost":""})`:"Set this product's cost in Settings to see your profit.";};
+  total();
   $("sfM").onchange=e=>{sellForm.mid=e.target.value;store.set("inv-sell-m",sellForm.mid);renderSell()};
   wireChips(r,"prod",v=>{sellForm.pid=v;store.set("inv-sell-p",v);sellForm.price=Number(P(v).price);renderSell()});
   stepper(r,"sfQ",1,v=>{sellForm.qty=v;total()});
@@ -375,7 +380,7 @@ function stockSheet(kind,mid){
       if(!(q>0)){toast("Enter how many.",true);return}
       const cost=kind==="in"?Number($("ssCost").value)||null:null;
       const row={day,product_id:pid,kind,marketer_id:(kind==="out"||kind==="return")?$("ssM").value:null,qty:Math.round(q),unit_cost:cost,note:$("ssNote").value.trim()};
-      run($("ssBtn"),"save the stock",async()=>{await ins("stock_moves",row);if(cost&&!Number(P(pid).cost))await upd("products",pid,{cost})},{in:"Stock added",out:"Stock given out",return:"Return saved"}[kind]);
+      run($("ssBtn"),"save the stock",async()=>{await ins("stock_moves",row);if(cost&&cost!==Number(P(pid).cost)){await upd("products",pid,{cost});await api(`/sales?product_id=eq.${enc(pid)}&cost=eq.0`,{method:"PATCH",prefer:"return=minimal",body:{cost}})}},{in:"Stock added",out:"Stock given out",return:"Return saved"}[kind]);
     };
   });
 }
@@ -732,7 +737,7 @@ function renderMoney(){
   }else{
     const [f,t]=period(reportPeriod), F=moneyFigures(f,t), rows=F.sales;
     const agg=S.marketers.map(m=>{const r=rows.filter(s=>s.marketer_id===m.id);return{m,u:sumQty(r),v:sumVal(r),pr:sumVal(r)-sumCost(r),d:new Set(r.map(s=>s.day)).size,p:F.pays.filter(p=>p.marketer_id===m.id).reduce((a,p)=>a+Number(p.amount),0)}}).filter(x=>x.u||x.p).sort((a,b)=>b.u-a.u);
-    const byP={};rows.forEach(s=>{const k=pName(s);byP[k]=byP[k]||{u:0,v:0,pr:0};byP[k].u+=Number(s.qty);byP[k].v+=s.qty*s.price;byP[k].pr+=s.qty*(s.price-(s.cost||0))});
+    const byP={};rows.forEach(s=>{const k=pName(s);byP[k]=byP[k]||{u:0,v:0,pr:0};byP[k].u+=Number(s.qty);byP[k].v+=s.qty*s.price;byP[k].pr+=s.qty*(s.price-unitCost(s))});
     const pk=Object.keys(byP).sort((a,b)=>byP[b].u-byP[a].u);
     const byC={};F.exps.forEach(e=>{byC[e.category]=(byC[e.category]||0)+Number(e.amount)});
     body=`<div class="seg"><button data-seg="rp" data-v="today" aria-pressed="${reportPeriod==="today"}">Day</button><button data-seg="rp" data-v="week" aria-pressed="${reportPeriod==="week"}">Week</button><button data-seg="rp" data-v="month" aria-pressed="${reportPeriod==="month"}">Month</button></div>
@@ -750,7 +755,8 @@ function renderMoney(){
       <div class="card full"><h2>By marketer</h2><div class="tbl"><table><thead><tr><th>Marketer</th><th class="r">Items</th><th class="r">Days</th><th class="r">Sales</th><th class="r">Profit</th><th class="r">Handed in</th>${F.pay>0?'<th class="r">Their pay</th>':""}</tr></thead>
         <tbody>${agg.length?agg.map(x=>`<tr><td>${esc(x.m.name)}</td><td class="r">${x.u}</td><td class="r">${x.d}</td><td class="r">${cedi(x.v)}</td><td class="r">${cedi(x.pr)}</td><td class="r">${cedi(x.p)}</td>${F.pay>0?`<td class="r">${cedi(x.u*F.pay)}</td>`:""}</tr>`).join(""):`<tr><td colspan="7" class="empty">No sales in this period.</td></tr>`}</tbody>
         ${agg.length?`<tfoot><tr><th>Total</th><th class="r">${sumQty(rows)}</th><th></th><th class="r">${cedi(F.revenue)}</th><th class="r">${cedi(F.gross)}</th><th class="r">${cedi(F.received)}</th>${F.pay>0?`<th class="r">${cedi(F.mpay)}</th>`:""}</tr></tfoot>`:""}</table></div></div>
-      <div class="card full"><h2>By product</h2><div class="tbl"><table><thead><tr><th>Product</th><th class="r">Sold</th><th class="r">Sales</th><th class="r">Profit</th></tr></thead><tbody>${pk.length?pk.map(k=>`<tr><td>${esc(k)}</td><td class="r">${byP[k].u}</td><td class="r">${cedi(byP[k].v)}</td><td class="r">${cedi(byP[k].pr)}</td></tr>`).join(""):`<tr><td colspan="4" class="empty">Nothing sold.</td></tr>`}</tbody></table></div></div>
+      <div class="card full"><h2>By product</h2><div class="tbl"><table><thead><tr><th>Product</th><th class="r">Sold</th><th class="r">Sales</th><th class="r">Cost</th><th class="r">Profit</th><th class="r">Margin</th></tr></thead><tbody>${pk.length?pk.map(k=>`<tr><td>${esc(k)}</td><td class="r">${byP[k].u}</td><td class="r">${cedi(byP[k].v)}</td><td class="r">${cedi(byP[k].v-byP[k].pr)}</td><td class="r">${cedi(byP[k].pr)}</td><td class="r">${byP[k].v?Math.round(byP[k].pr/byP[k].v*100):0}%</td></tr>`).join(""):`<tr><td colspan="6" class="empty">Nothing sold.</td></tr>`}</tbody>
+        ${pk.length?`<tfoot><tr><th>Total</th><th class="r">${sumQty(rows)}</th><th class="r">${cedi(F.revenue)}</th><th class="r">${cedi(F.cost)}</th><th class="r">${cedi(F.gross)}</th><th class="r">${F.revenue?Math.round(F.gross/F.revenue*100):0}%</th></tr></tfoot>`:""}</table></div></div>
       </div>`;
   }
   r.innerHTML=`<div class="seg">${tabs.map(([k,l])=>`<button data-seg="mt" data-v="${k}" aria-pressed="${moneyTab===k}">${l}</button>`).join("")}</div>${body}`;
@@ -790,7 +796,7 @@ function settingsSheet(){
   const ios=/iphone|ipad|ipod/i.test(navigator.userAgent);
   openSheet("Settings",`
     <div><div class="row between"><h3>Products and prices</h3><button class="btn-primary" id="stAddP">+ Product</button></div>
-    <ul class="list">${S.products.map(p=>`<li><button class="item" data-pe="${p.id}"><span class="grow"><span class="t">${esc(p.name)} ${p.active===false?'<span class="pill off">paused</span>':""}</span><span class="s">Sell ${cedi(p.price)} · Cost ${Number(p.cost)?cedi(p.cost):"not set"} · Low at ${p.low_stock}</span></span><span class="r muted">Edit ›</span></button></li>`).join("")}</ul></div>
+    <ul class="list">${S.products.map(p=>`<li><button class="item" data-pe="${p.id}"><span class="grow"><span class="t">${esc(p.name)} ${p.active===false?'<span class="pill off">paused</span>':""}</span><span class="s">Sell ${cedi(p.price)} · Cost ${Number(p.cost)?cedi(p.cost):"not set"}</span><span class="s">${esc(marginText(p.price,p.cost))}</span></span><span class="r muted">Edit ›</span></button></li>`).join("")}</ul></div>
     <div class="stack"><h3>Targets and pay</h3>
       <div class="grid2"><label class="f">Daily target (items)<input id="stT" type="number" min="1" value="${S.settings?.target??5}"></label><label class="f">Pay per item (GH₵)<input id="stP" type="number" min="0" step="0.5" value="${S.settings?.pay??0}"></label></div>
       <button id="stSave">Save targets and pay</button></div>
@@ -809,13 +815,15 @@ function productForm(p){
     <label class="f">Name<input id="pfN" value="${esc(p?.name)}" placeholder="e.g. Massage gun"></label>
     <div class="grid2"><label class="f">Selling price (GH₵)<input id="pfP" type="number" min="0" step="0.5" inputmode="decimal" value="${p?Number(p.price):""}"></label>
     <label class="f">Your cost (GH₵)<input id="pfC" type="number" min="0" step="0.5" inputmode="decimal" value="${p&&Number(p.cost)?Number(p.cost):""}" placeholder="what you paid"></label></div>
+    <p class="small" id="pfMargin" style="font-weight:700"></p>
     <label class="f">Warn me when stock is at or below<input id="pfL" type="number" min="0" step="1" value="${p?.low_stock??5}"></label>
     <button class="btn-primary btn-block" id="pfSave">${p?"Save changes":"Add product"}</button>
     ${p?`<button class="btn-ghost btn-block" id="pfPause">${p.active===false?"Resume this product":"Pause this product"}</button>`:""}
-    <p class="small muted">Changing a price doesn't change sales already recorded.</p>`,()=>{
+    <p class="small muted">Margin = profit as a share of the selling price. Markup = profit as a share of your cost. A new Stock in with a different cost updates the cost here. Changing a price doesn't change sales already recorded, except sales saved with no cost, which take this cost.</p>`,()=>{
+    const mg=()=>{$("pfMargin").textContent=$("pfP").value?marginText($("pfP").value,$("pfC").value):""};$("pfP").oninput=mg;$("pfC").oninput=mg;mg();
     $("pfSave").onclick=()=>{const name=$("pfN").value.trim(),price=Number($("pfP").value);if(!name||!(price>=0)||$("pfP").value===""){toast("Enter a name and selling price.",true);return}
       const row={name,price,cost:Number($("pfC").value)||0,low_stock:Number($("pfL").value)||0};
-      if(p) run($("pfSave"),"save the product",()=>upd("products",p.id,row),"Saved");
+      if(p) run($("pfSave"),"save the product",async()=>{await upd("products",p.id,row);if(row.cost>0)await api(`/sales?product_id=eq.${enc(p.id)}&cost=eq.0`,{method:"PATCH",prefer:"return=minimal",body:{cost:row.cost}})},"Saved");
       else run($("pfSave"),"add the product",()=>ins("products",{id:newId(),no:S.products.reduce((a,x)=>Math.max(a,x.no||0),0)+1,...row,active:true}),"Product added");
     };
     if(p) $("pfPause").onclick=()=>run($("pfPause"),"change the product",()=>upd("products",p.id,{active:p.active===false}),"Saved");
