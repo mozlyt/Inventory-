@@ -1,7 +1,7 @@
 // MOZLYT Inventory: keeps the app's own files on the phone so it opens like an app.
 // Records are never cached here; they always come live from the database.
-const CACHE = "mozlyt-inventory-v6";
-const SHELL = ["./", "index.html", "app.css?v=6", "app.js?v=6", "manifest.webmanifest",
+const CACHE = "mozlyt-inventory-v7";
+const SHELL = ["./", "index.html", "app.css?v=7", "app.js?v=7", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png", "icons/favicon-32.png"];
 
 self.addEventListener("install", e => {
