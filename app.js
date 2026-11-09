@@ -221,6 +221,9 @@ function renderHome(){
         ${low.map(p=>`<div class="alert"><span>⚠️</span><span><b>${esc(p.name)}</b> is low: ${Math.max(0,stockOf(p.id).total)} left.</span></div>`).join("")}
         ${owing.slice(0,3).map(x=>`<div class="alert info"><span>💰</span><span><b>${esc(x.m.name)}</b> owes ${cedi(x.o)}.</span></div>`).join("")}
       </div></div>`:""}
+      ${(()=>{const ex=expensesOn(day),t=ex.reduce((a,e)=>a+Number(e.amount),0),usual=usualDaily().reduce((a,l)=>a+(Number(l.amount)||0),0);
+        return `<button class="card" id="homeExp" style="text-align:left;font-weight:400"><div class="row between"><h2>Expenses ${isToday?"today":""}</h2>${ex.length?`<span class="pill good">recorded</span>`:`<span class="pill warn">not recorded</span>`}</div>
+          <div class="row between" style="align-items:flex-end"><div><div class="money-big">${ex.length?cedi(t):"–"}</div><span class="small muted">${ex.length?ex.length+" item"+(ex.length===1?"":"s"):"your usual day is "+cedi(usual)}</span></div><span class="btn-primary" style="display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:12px;font-weight:700">${ex.length?"Add more":"Record"}</span></div></button>`})()}
       <div class="card"><div class="row between"><h2>Targets ${isToday?"today":""}</h2><span class="pill">${target} each</span></div>
         ${prog.length?`<ul class="list">${prog.map(x=>`<li><button class="item" data-open-m="${x.m.id}"><span class="avatar">${esc(initials(x.m.name))}</span><span class="grow"><span class="t">${esc(x.m.name)}</span><span class="bar ${x.n>=target?"done":""}" style="margin-top:6px"><i style="width:${Math.min(100,x.n/target*100)}%"></i></span></span><span class="r"><b>${x.n}</b>/${target}</span></button></li>`).join("")}</ul>`:`<p class="empty">No marketers yet.</p>`}
       </div>
@@ -241,6 +244,7 @@ function renderHome(){
   r.querySelector('[data-qa="stockin"]').onclick=()=>stockSheet("in");
   r.querySelector('[data-qa="pay"]').onclick=()=>paymentSheet();
   r.querySelector('[data-qa="addm"]').onclick=()=>marketerForm();
+  $("homeExp").onclick=()=>dailyExpenseSheet();
   r.querySelectorAll("[data-open-m]").forEach(b=>b.onclick=()=>marketerPage(b.dataset.openM));
   r.querySelectorAll("[data-credit]").forEach(b=>b.onclick=()=>creditPaidSheet(unpaidCredit().find(s=>String(s.id)===b.dataset.credit)));
   r.querySelectorAll("[data-go2]").forEach(b=>b.onclick=()=>{moneyTab=b.dataset.tab;go(b.dataset.go2)});
@@ -592,6 +596,48 @@ function savingsSheet(mid,out){
   });
 }
 const EXPENSE_CATS=["Transport","Shipping","Rent","Airtime & data","Food","Marketing","Other"];
+const DEFAULT_DAILY=[{label:"Transport: Adjeman → Amasaman",cat:"Transport",amount:10},{label:"Transport: Amasaman → Seku",cat:"Transport",amount:10},{label:"Transport back home",cat:"Transport",amount:20},{label:"Extra fare (coming late)",cat:"Transport",amount:0},{label:"Food when out",cat:"Food",amount:50},{label:"Food at night",cat:"Food",amount:20}];
+const usualDaily=()=>{const d=S.settings?.daily_expenses;return Array.isArray(d)&&d.length?d:DEFAULT_DAILY};
+const expensesOn=d=>(S.expenses||[]).filter(e=>e.day===d);
+function dailyExpenseSheet(){
+  const done=expensesOn(day), doneTotal=done.reduce((a,e)=>a+Number(e.amount),0);
+  let lines=done.length?[]:usualDaily().map(l=>({...l,amount:Number(l.amount)||0}));  // already recorded: start empty, only extras
+  const when=day===todayISO()?"today":fmtDay(day,{weekday:"long",day:"numeric",month:"short"});
+  const draw=()=>{
+    $("deLines").innerHTML=lines.map((l,i)=>`<li><div class="item" style="gap:8px">
+      <span class="grow"><span class="t" style="white-space:normal">${esc(l.label)}</span><span class="s">${esc(l.cat)}</span></span>
+      <input data-de-amt="${i}" type="number" min="0" step="0.5" inputmode="decimal" value="${l.amount||""}" placeholder="0" aria-label="Amount GH₵ for ${esc(l.label)}" style="width:84px;text-align:right">
+      <button type="button" class="btn-icon btn-ghost" data-de-del="${i}" aria-label="Remove line">✕</button></div></li>`).join("");
+    const tot=()=>{$("deTotal").textContent=cedi(lines.reduce((a,l)=>a+(Number(l.amount)||0),0))};
+    document.querySelectorAll("[data-de-amt]").forEach(x=>x.oninput=()=>{lines[x.dataset.deAmt].amount=Number(x.value)||0;tot()});
+    document.querySelectorAll("[data-de-del]").forEach(x=>x.onclick=()=>{lines.splice(Number(x.dataset.deDel),1);draw()});
+    tot();
+  };
+  openSheet("Daily expenses",`
+    ${done.length?`<div class="alert info"><span>✓</span><span>Already saved for ${when}: <b>${cedi(doneTotal)}</b> (${done.map(e=>esc(e.note||e.category)).join(", ")}). Add only the extras below.</span></div>`:`<p class="muted">Your usual day is filled in. Change any amount that was different ${when}, add anything extra, then save.</p>`}
+    <ul class="list" id="deLines"></ul>
+    <div class="card" style="padding:12px;gap:8px;background:var(--raised)">
+      <span style="font-weight:700;font-size:.9rem">Add another expense</span>
+      <div class="chips">${EXPENSE_CATS.map(c=>`<button type="button" class="chip" data-chip="decat" data-v="${c}" aria-pressed="${c==="Other"}">${c}</button>`).join("")}</div>
+      <div class="row"><input id="deNewL" placeholder="What for, e.g. airtime" style="flex:2 1 160px"><input id="deNewA" type="number" min="0" step="0.5" inputmode="decimal" placeholder="GH₵" style="flex:1 1 80px"><button type="button" id="deAdd">Add</button></div>
+    </div>
+    <div class="row between"><span class="muted">Total for ${when}</span><span class="money-big" id="deTotal">GH₵0</span></div>
+    ${done.length?"":`<label class="row" style="gap:10px;font-weight:400"><input type="checkbox" id="deUsual" style="width:22px;min-height:22px"> Make this list my usual day</label>`}
+    <button class="btn-primary btn-block" id="deSave" style="min-height:54px">Save expenses for ${when}</button>
+    <p class="small muted">Lines left at 0 aren't saved. To record a different day, change the date at the top first.</p>`,root=>{
+    let newCat="Other"; wireChips(root,"decat",v=>newCat=v); draw();
+    $("deAdd").onclick=()=>{const l=$("deNewL").value.trim()||newCat,a=Number($("deNewA").value)||0;lines.push({label:l,cat:newCat,amount:a});$("deNewL").value="";$("deNewA").value="";draw()};
+    $("deSave").onclick=()=>{
+      const rows=lines.filter(l=>Number(l.amount)>0).map(l=>({day,category:l.cat,amount:Number(l.amount),note:l.label.trim()||l.cat}));
+      const keep=!!$("deUsual")?.checked;
+      if(!rows.length&&!keep){toast("Enter at least one amount.",true);return}
+      run($("deSave"),"save the expenses",async()=>{
+        if(rows.length) await ins("expenses",rows);
+        if(keep) await api("/settings?id=eq.1",{method:"PATCH",prefer:"return=minimal",body:{daily_expenses:lines.map(l=>({label:l.label.trim()||l.cat,cat:l.cat,amount:Number(l.amount)||0}))}});
+      },rows.length?`Saved ${cedi(rows.reduce((a,r)=>a+r.amount,0))} of expenses`:"Usual day updated");
+    };
+  });
+}
 let txFilter="all";
 function expenseSheet(e){
   let cat=e?.category||"Transport";
@@ -654,7 +700,7 @@ function renderMoney(){
       </div>
       <div class="fab-row" style="grid-template-columns:repeat(3,minmax(0,1fr))">
         <button class="qa" id="ovPay">${icon.cash}Receive money</button>
-        <button class="qa" id="ovExp">${icon.back}Record expense</button>
+        <button class="qa" id="ovExp">${icon.back}Daily expenses</button>
         <button class="qa" id="ovCust">${icon.person}Customers who owe</button>
       </div>
       <div class="wide">
@@ -701,14 +747,14 @@ function renderMoney(){
     ].filter(x=>txFilter==="all"||x.k===txFilter).sort((a,b)=>b.d.localeCompare(a.d)||String(b.c).localeCompare(String(a.c)));
     const groups={};tx.forEach(x=>(groups[x.d]=groups[x.d]||[]).push(x));
     const filters=[["all","All"],["sales","Sales"],["in","Money in"],["exp","Expenses"],["stock","Stock"],["sav","Savings"]];
-    body=`<div class="row between"><p class="muted">${monthName} · ${tx.length} entr${tx.length===1?"y":"ies"}</p><button class="btn-primary" id="txExp">+ Expense</button></div>
+    body=`<div class="row between"><p class="muted">${monthName} · ${tx.length} entr${tx.length===1?"y":"ies"}</p><button class="btn-primary" id="txExp">+ Expenses</button></div>
       <div class="chips">${filters.map(([k,l])=>`<button class="chip" data-chip="txf" data-v="${k}" aria-pressed="${txFilter===k}">${l}</button>`).join("")}</div>
       ${tx.length?Object.keys(groups).map(d=>`<div class="card" style="padding:4px 16px"><div class="eyebrow" style="padding-top:12px">${fmtDay(d,{weekday:"long",day:"numeric",month:"short"})}</div><ul class="list">${groups[d].map((x,i)=>`<li><button class="item" data-tx="${d}|${i}"><span class="grow"><span class="t">${x.t}</span>${x.s?`<span class="s">${x.s}</span>`:""}</span><span class="r" style="${x.col?"color:"+x.col:""}"><b>${x.v}</b></span></button></li>`).join("")}</ul></div>`).join(""):`<div class="card"><p class="empty">Nothing recorded in ${monthName}${txFilter!=="all"?" for this filter":""}.</p></div>`}
       <p class="small muted">Tap any entry to change or delete it. Change the date at the top to see another month.</p>`;
     r.innerHTML=`<div class="seg">${tabs.map(([k,l])=>`<button data-seg="mt" data-v="${k}" aria-pressed="${moneyTab===k}">${l}</button>`).join("")}</div>${body}`;
     r.querySelectorAll("[data-tx]").forEach(b=>{const [d,i]=b.dataset.tx.split("|");b.onclick=()=>groups[d][Number(i)].open()});
     wireChips(r,"txf",v=>{txFilter=v;renderMoney()});
-    $("txExp").onclick=()=>expenseSheet();
+    $("txExp").onclick=()=>dailyExpenseSheet();
     wireSeg(r,"mt",v=>{moneyTab=v;renderMoney()});
     return;
   }else if(moneyTab==="people"){
@@ -762,7 +808,7 @@ function renderMoney(){
   wireSeg(r,"mt",v=>{moneyTab=v;renderMoney()});
   wireSeg(r,"rp",v=>{reportPeriod=v;renderMoney()});
   $("ovPay")&&($("ovPay").onclick=()=>paymentSheet());
-  $("ovExp")&&($("ovExp").onclick=()=>expenseSheet());
+  $("ovExp")&&($("ovExp").onclick=()=>dailyExpenseSheet());
   $("ovCust")&&($("ovCust").onclick=()=>{moneyTab="people";renderMoney()});
   $("mnPay")&&($("mnPay").onclick=()=>paymentSheet());
   $("svAdd")&&($("svAdd").onclick=()=>savingsSheet(null,false));
