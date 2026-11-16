@@ -341,6 +341,7 @@ function renderStock(){
       <button class="qa" data-sk="out">${icon.give}Give to marketer</button>
       <button class="qa" data-sk="return">${icon.back}Return from marketer</button>
     </div>
+    <button class="btn-primary btn-block" id="stAddProd" style="margin-bottom:14px">+ Add product</button>
     <div class="wide">
       ${ps.map(p=>{const s=stockOf(p.id);const low=s.tracked&&s.total<=Number(p.low_stock||0);return `
       <div class="card">
@@ -349,7 +350,7 @@ function renderStock(){
         <div class="r small muted" style="text-align:right">In your store: <b class="num" style="color:var(--fg)">${s.tracked?s.store:"–"}</b><br>With marketers: <b class="num" style="color:var(--fg)">${s.withM}</b><br>Sold so far: <b class="num" style="color:var(--fg)">${s.sold}</b></div></div>
         ${!s.tracked?`<p class="small muted">Tap Correct count and enter how many you have.</p>`:s.total<0?`<p class="small" style="color:var(--warn)">More sales than stock recorded. Tap Correct count.</p>`:""}
         <div class="grid2"><button class="btn-primary" data-count="${p.id}">Correct count</button><button data-prod-edit="${p.id}">Edit product</button></div>
-      </div>`}).join("")||`<div class="card"><p class="empty">No products yet. Add one in Settings.</p></div>`}
+      </div>`}).join("")||`<div class="card"><p class="empty">No products yet. Tap + Add product.</p></div>`}
       <div class="card"><h2>Who's holding stock</h2>
         ${holders.length?`<ul class="list">${holders.map(x=>`<li><button class="item" data-open-m="${x.m.id}"><span class="avatar">${esc(initials(x.m.name))}</span><span class="grow"><span class="t">${esc(x.m.name)}</span><span class="s">${x.h.map(h=>esc(h.p.name)+" × "+h.n).join(" · ")}</span></span><span class="r"><b>${x.h.reduce((t,h)=>t+h.n,0)}</b></span></button></li>`).join("")}</ul>`:`<p class="empty">No marketer is holding stock. Use "Give to marketer" when you hand over items.</p>`}
       </div>
@@ -358,6 +359,7 @@ function renderStock(){
       </div>
     </div>`;
   r.querySelectorAll("[data-sk]").forEach(b=>b.onclick=()=>stockSheet(b.dataset.sk));
+  $("stAddProd").onclick=()=>productForm(null);
   r.querySelectorAll("[data-open-m]").forEach(b=>b.onclick=()=>marketerPage(b.dataset.openM));
   r.querySelectorAll("[data-prod-edit]").forEach(b=>b.onclick=()=>productForm(P(b.dataset.prodEdit)));
   r.querySelectorAll("[data-count]").forEach(b=>b.onclick=()=>countSheet(P(b.dataset.count)));
