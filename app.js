@@ -156,7 +156,7 @@ async function load(){
     try{
       const d=await api("/rpc/get_state",{method:"POST",body:{months:months()}});
       if(!d||d.owner!==true){$("lockedEmail").textContent=me?.email||"this account";showGate("locked");return}
-      S=d; banner(""); showGate("app"); render();
+      S=d; await loadMassage(); banner(""); showGate("app"); render();
     }catch(e){
       if(e?.status===401){showGate("login");return}
       if(!S){showGate("boot");$("bootMsg").textContent=explain(e,"load your records")}
@@ -172,7 +172,7 @@ function showGate(v){
 }
 
 /* =================== NAVIGATION =================== */
-const titles={home:"Home",sell:"Sell",stock:"Stock",team:"Team",money:"Money"};
+const titles={home:"Home",sell:"Sell",stock:"Stock",sessions:"Sessions",team:"Team",money:"Money"};
 function go(s){screen=s;store.set("inv-screen",s);render();window.scrollTo({top:0})}
 document.querySelectorAll(".nav [data-go]").forEach(b=>b.onclick=()=>go(b.dataset.go));
 function render(){
@@ -182,7 +182,7 @@ function render(){
   Object.keys(titles).forEach(k=>$("scr-"+k).hidden=k!==screen);
   $("day").value=day;
   $("dateLabel").textContent=day===todayISO()?"Today":fmtDay(day,{weekday:"short",day:"numeric",month:"short"});
-  ({home:renderHome,sell:renderSell,stock:renderStock,team:renderTeam,money:renderMoney})[screen]();
+  ({home:renderHome,sell:renderSell,stock:renderStock,sessions:renderSessions,team:renderTeam,money:renderMoney})[screen]();
 }
 
 /* =================== HOME =================== */
@@ -362,6 +362,7 @@ function renderStock(){
   r.querySelectorAll("[data-prod-edit]").forEach(b=>b.onclick=()=>productForm(P(b.dataset.prodEdit)));
   r.querySelectorAll("[data-count]").forEach(b=>b.onclick=()=>countSheet(P(b.dataset.count)));
   r.querySelectorAll("[data-move]").forEach(b=>b.onclick=()=>moveSheet(S.moves.find(m=>String(m.id)===b.dataset.move)));
+  massageStockBlock(r);
 }
 function stockSheet(kind,mid){
   const ps=liveProducts(); if(!ps.length){productForm();return}
@@ -423,6 +424,7 @@ function moveSheet(mv){
 
 /* =================== TEAM =================== */
 function renderTeam(){
+  if(teamTab==="therapists"){renderTherapists();return}
   const q=teamQuery.trim().toLowerCase();
   const removedCount=S.marketers.filter(m=>m.removed_at).length;
   if(!removedCount) showRemoved=false;
@@ -430,6 +432,7 @@ function renderTeam(){
     .sort((a,b)=>(a.active===false)-(b.active===false)||a.no-b.no);
   const r=$("scr-team");
   r.innerHTML=`
+    ${teamSeg()}
     <div class="row"><input id="tq" type="search" placeholder="Search name, phone or number" value="${esc(teamQuery)}" style="flex:1 1 200px"><button class="btn-primary" id="tAdd">+ Add</button><button class="btn-ghost" id="tMany">Add many</button></div>
     <div class="card" style="padding:4px 16px">
       ${list.length?`<ul class="list">${list.map(m=>{const mo=moneyOf(m.id);const h=holdingsOf(m.id).reduce((t,x)=>t+x.n,0);const td=sumQty(salesOn(day).filter(s=>s.marketer_id===m.id));return `<li><button class="item" data-open-m="${m.id}">
@@ -443,6 +446,7 @@ function renderTeam(){
   $("tShowRem")&&($("tShowRem").onclick=()=>{showRemoved=!showRemoved;renderTeam()});
   const tq=$("tq"); tq.oninput=e=>{teamQuery=e.target.value;const pos=tq.selectionStart;renderTeam();const n=$("tq");n.focus();n.setSelectionRange(pos,pos)};
   $("tAdd").onclick=()=>marketerForm(); $("tMany").onclick=()=>addManySheet();
+  wireTeamSeg(r);
   r.querySelectorAll("[data-open-m]").forEach(b=>b.onclick=()=>marketerPage(b.dataset.openM));
 }
 function marketerForm(m){
@@ -597,7 +601,7 @@ function savingsSheet(mid,out){
       run($("svBtn"),"save the savings",()=>ins("savings",{day,marketer_id:mm,amount:out?-a:a,note:$("svNote").value.trim()}),out?"Savings paid out":"Savings added")};
   });
 }
-const EXPENSE_CATS=["Transport","Shipping","Rent","Airtime & data","Food","Marketing","Other"];
+const EXPENSE_CATS=["Transport","Shipping","Rent","Airtime & data","Food","Marketing","Platform fee","Other"];
 const DEFAULT_DAILY=[{label:"Transport: Adjeman → Amasaman",cat:"Transport",amount:10},{label:"Transport: Amasaman → Seku",cat:"Transport",amount:10},{label:"Transport back home",cat:"Transport",amount:20},{label:"Extra fare (coming late)",cat:"Transport",amount:0},{label:"Food when out",cat:"Food",amount:50},{label:"Food at night",cat:"Food",amount:20}];
 const usualDaily=()=>{const d=S.settings?.daily_expenses;return Array.isArray(d)&&d.length?d:DEFAULT_DAILY};
 const expensesOn=d=>(S.expenses||[]).filter(e=>e.day===d);
@@ -673,20 +677,23 @@ function moneyFigures(f,t){
   const received=pays.reduce((a,p)=>a+Number(p.amount),0);
   const expenses=exps.reduce((a,e)=>a+Number(e.amount),0);
   const savIn=savs.filter(v=>v.amount>0).reduce((a,v)=>a+Number(v.amount),0), savOut=-savs.filter(v=>v.amount<0).reduce((a,v)=>a+Number(v.amount),0);
-  const revenue=sumVal(sales), cost=sumCost(sales), gross=revenue-cost, net=0;
+  const mIn=massageIn(f,t), mKit=massageKit(f,t), mTher=therapistPaid(f,t);
+  const revenue=sumVal(sales), cost=sumCost(sales), gross=revenue-cost+mIn-mKit, net=0;
   const withMarketers=S.marketers.reduce((a,m)=>a+Math.max(0,moneyOf(m.id).owes),0);
   const customersOwe=unpaidCredit().reduce((a,s)=>a+s.qty*s.price,0);
   let stockUnits=0,stockCost=0,stockPrice=0;
   S.products.forEach(p=>{const n=Math.max(0,stockOf(p.id).total);stockUnits+=n;stockCost+=n*Number(p.cost||0);stockPrice+=n*Number(p.price||0)});
   const savingsHeld=S.marketers.reduce((a,m)=>a+moneyOf(m.id).saved,0);
   const mpay=savIn, profit=gross-expenses;  // profit after expenses. Savings belong to the marketers, so they are not profit
-  const split=SPLIT.map(([n,p])=>({n,p,v:profit*p}));
-  return {sales,pays,exps,savs,received,expenses,stockBought,spent:stockBought+expenses,savIn,savOut,revenue,cost,gross,mpay,net:profit,split,withMarketers,customersOwe,toCollect:withMarketers+customersOwe,stockUnits,stockCost,stockPrice,savingsHeld};
+  const split=SPLIT.map(([n,p])=>({n,p,v:profit*p,sub:Math.round(p*100)+"% of profit after expenses"}));
+  const pers=split.find(x=>x.n==="Personal income");
+  if(pers){pers.v=profit*pers.p-mTher;pers.sub=`${Math.round(pers.p*100)}% of profit, less therapist pay of ${cedi(mTher)}`}
+  return {sales,pays,exps,savs,received,expenses,stockBought,spent:stockBought+expenses,savIn,savOut,revenue,cost,gross,mpay,net:profit,split,massageIn:mIn,massageKit:mKit,therapistPaid:mTher,withMarketers,customersOwe,toCollect:withMarketers+customersOwe,stockUnits,stockCost,stockPrice,savingsHeld};
 }
 const row=(label,val,sub,opts={})=>`<li><div class="item"><span class="grow"><span class="${opts.strong?"t":""}">${label}</span>${sub?`<span class="s" style="white-space:normal">${sub}</span>`:""}</span><span class="r" ${opts.color?`style="color:${opts.color}"`:""}>${opts.strong?`<b>${val}</b>`:val}</span></div></li>`;
 
 const SPLIT=[["Reinvestment",0.4],["Personal income",0.3],["Business reserve",0.2],["Unallocated profit",0.1]];
-const splitRows=F=>F.split.map(s=>row(s.n,cedi(s.v),Math.round(s.p*100)+"% of profit after expenses")).join("");
+const splitRows=F=>F.split.map(s=>row(s.n,cedi(s.v),s.sub)).join("");
 
 function renderMoney(){
   const r=$("scr-money");
@@ -722,7 +729,9 @@ function renderMoney(){
         <div class="card"><h2>Profit in ${monthName}</h2>
           <ul class="list">
             ${row("Sales",cedi(F.revenue),sumQty(F.sales)+" items, including pay-later")}
+            ${row("Massage money in","+ "+cedi(F.massageIn),"booking deposits and payments")}
             ${row("Cost of items sold","− "+cedi(F.cost))}
+            ${row("Massage kit used","− "+cedi(F.massageKit),"counted when a session is delivered")}
             ${row("Gross profit",cedi(F.gross),"sales − cost",{strong:true})}
             ${row("Expenses","− "+cedi(F.expenses),F.exps.length?`${F.exps.length} recorded this month`:"none recorded yet")}
             ${row("Profit after expenses",cedi(F.net),"gross profit − expenses",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
@@ -754,7 +763,8 @@ function renderMoney(){
       ...F.pays.map(p=>({k:"in",d:p.day,c:p.created_at,t:`${esc(mName(p.marketer_id))} handed in money`,s:p.method==="momo"?"MoMo":"Cash",v:"+"+cedi(p.amount),col:"var(--good)",m:Number(p.amount),use:"Handed in by marketers (sales money)",open:()=>paymentDetail(p)})),
       ...F.exps.map(e=>({k:"exp",d:e.day,c:e.created_at,t:esc(e.category),s:esc(e.note||"Expense"),v:"−"+cedi(e.amount),col:"var(--warn)",m:-Number(e.amount),use:e.category||"Other",open:()=>expenseSheet(e)})),
       ...F.savs.map(v=>({k:"sav",d:v.day,c:v.created_at,t:`${esc(mName(v.marketer_id))} ${v.amount<0?"savings paid out":"saved"}`,s:esc(v.note||""),v:(v.amount<0?"−":"+")+cedi(Math.abs(v.amount)),col:v.amount<0?"var(--warn)":"var(--good)",m:Number(v.amount),use:v.amount<0?"Marketers' pay paid out (savings)":"Savings given to you to keep",open:()=>savingDetail(v)})),
-      ...S.moves.filter(m=>m.day>=mf&&m.day<=mt).map(mv=>({k:"stock",d:mv.day,c:mv.created_at,t:{in:"Stock in",out:"Given to "+esc(mName(mv.marketer_id)),return:"Returned by "+esc(mName(mv.marketer_id)),adjust:"Count correction"}[mv.kind]+" · "+esc(P(mv.product_id)?.name||"Product"),s:mv.kind==="in"&&mv.unit_cost?`${mv.qty} × ${cedi(mv.unit_cost)} = ${cedi(mv.qty*mv.unit_cost)}`:esc(mv.note||""),v:(mv.kind==="out"?"→ ":mv.kind==="return"?"← ":mv.qty>0?"+":"")+mv.qty+" items",col:"",m:mv.kind==="in"&&mv.unit_cost?-Number(mv.qty)*Number(mv.unit_cost):0,use:"Stock bought",open:()=>moveSheet(mv)}))
+      ...S.moves.filter(m=>m.day>=mf&&m.day<=mt).map(mv=>({k:"stock",d:mv.day,c:mv.created_at,t:{in:"Stock in",out:"Given to "+esc(mName(mv.marketer_id)),return:"Returned by "+esc(mName(mv.marketer_id)),adjust:"Count correction"}[mv.kind]+" · "+esc(P(mv.product_id)?.name||"Product"),s:mv.kind==="in"&&mv.unit_cost?`${mv.qty} × ${cedi(mv.unit_cost)} = ${cedi(mv.qty*mv.unit_cost)}`:esc(mv.note||""),v:(mv.kind==="out"?"→ ":mv.kind==="return"?"← ":mv.qty>0?"+":"")+mv.qty+" items",col:"",m:mv.kind==="in"&&mv.unit_cost?-Number(mv.qty)*Number(mv.unit_cost):0,use:"Stock bought",open:()=>moveSheet(mv)})),
+      ...massageTx(mf,mt)
     ].map(x=>(txFilter==="out"&&x.m<0)?{...x,t:x.k==="stock"?"Stock bought · "+x.t.split(" · ").slice(1).join(" · "):x.k==="exp"?esc(x.use):x.t,s:(x.k==="exp"?"Used for: ":"")+(x.s||""),v:cedi(x.m),col:"var(--warn)"}:x)
      .filter(x=>txFilter==="all"||(txFilter==="in"?x.m>0:txFilter==="out"?x.m<0:x.k===txFilter)).sort((a,b)=>b.d.localeCompare(a.d)||String(b.c).localeCompare(String(a.c)));
     const groups={};tx.forEach(x=>(groups[x.d]=groups[x.d]||[]).push(x));
@@ -811,7 +821,9 @@ function renderMoney(){
       <div class="wide">
       <div class="card"><h2>Profit</h2><ul class="list">
         ${row("Sales",cedi(F.revenue),sumQty(rows)+" items")}
+        ${row("Massage money in","+ "+cedi(F.massageIn))}
         ${row("Cost of items sold","− "+cedi(F.cost))}
+        ${row("Massage kit used","− "+cedi(F.massageKit))}
         ${row("Gross profit",cedi(F.gross),"sales − cost",{strong:true})}
         ${row("Expenses","− "+cedi(F.expenses))}
         ${row("Profit after expenses",cedi(F.net),"gross profit − expenses",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
@@ -895,6 +907,368 @@ function productForm(p){
       else run($("pfSave"),"add the product",()=>ins("products",{id:newId(),no:S.products.reduce((a,x)=>Math.max(a,x.no||0),0)+1,...row,active:true}),"Product added");
     };
     if(p) $("pfPause").onclick=()=>run($("pfPause"),"change the product",()=>upd("products",p.id,{active:p.active===false}),"Saved");
+  });
+}
+
+/* =================== MASSAGE: sessions, kits, therapists =================== */
+let sesFilter="open", teamTab="marketers";
+const num=x=>Number(x)||0;
+const SRC=[["direct","Direct"],["platform","Booking platform"],["personal","Personal selling"]];
+const SRC_NAME=Object.fromEntries(SRC);
+const svcById=id=>(S.services||[]).find(s=>s.id===id);
+const kitById=id=>(S.kitItems||[]).find(k=>k.id===id);
+const bookingById=id=>(S.bookings||[]).find(b=>String(b.id)===String(id));
+const therapistById=id=>(S.therapists||[]).find(t=>t.id===id);
+const therapistName=id=>therapistById(id)?.name||"No therapist chosen";
+const liveTherapists=()=>(S.therapists||[]).filter(t=>!t.removed_at&&t.active!==false).sort((a,b)=>num(a.no)-num(b.no));
+const recipeOf=sid=>(S.serviceKit||[]).filter(r=>r.service_id===sid).map(r=>({item:kitById(r.kit_item_id),qty:num(r.qty)})).filter(r=>r.item);
+const paidOf=bid=>(S.bookingPayments||[]).filter(p=>String(p.booking_id)===String(bid)).reduce((t,p)=>t+num(p.amount),0);
+const balanceOf=b=>Math.max(0,num(b.price)-paidOf(b.id));
+const deliveriesOf=bid=>(S.deliveries||[]).filter(d=>String(d.booking_id)===String(bid)).sort((a,b)=>a.session_no-b.session_no);
+const kitStockOf=iid=>(S.kitMoves||[]).filter(m=>m.kit_item_id===iid).reduce((t,m)=>t+(m.kind==="issue"?-num(m.qty):num(m.qty)),0);
+const kitIssuedOn=bid=>(S.kitMoves||[]).filter(m=>String(m.booking_id)===String(bid)&&m.kind==="issue");
+const inRange=(x,f,t)=>x.day>=f&&x.day<=t;
+const massageIn=(f,t)=>(S.bookingPayments||[]).filter(p=>inRange(p,f,t)).reduce((a,p)=>a+num(p.amount),0);
+const massageKit=(f,t)=>(S.kitMoves||[]).filter(m=>m.kind==="issue"&&inRange(m,f,t)).reduce((a,m)=>a+num(m.qty)*num(m.unit_cost),0);
+const therapistPaid=(f,t)=>(S.therapistPay||[]).filter(p=>inRange(p,f,t)).reduce((a,p)=>a+num(p.amount),0);
+const owedThisMonth=th=>{const [f,t]=period("month");const paid=(S.therapistPay||[]).filter(p=>p.therapist_id===th.id&&inRange(p,f,t)).reduce((a,p)=>a+num(p.amount),0);return Math.max(0,num(th.monthly_pay)-paid)};
+const srcPill=s=>`<span class="pill">${esc(SRC_NAME[s]||s||"Direct")}</span>`;
+const bookingLine=b=>`${esc(b.service_name)} · ${esc(b.customer||"No name")}`;
+
+function massageTx(f,t){
+  const out=[];
+  (S.bookingPayments||[]).filter(p=>inRange(p,f,t)).forEach(p=>{const b=bookingById(p.booking_id);out.push({k:"in",d:p.day,c:p.created_at,t:`${b?bookingLine(b):"Booking"} · ${p.kind==="deposit"?"deposit":"payment"}`,s:p.method==="momo"?"MoMo":"Cash",v:"+"+cedi(p.amount),col:"var(--good)",m:num(p.amount),use:"Massage bookings",open:()=>b&&bookingDetail(b)})});
+  (S.kitMoves||[]).filter(m=>m.kind==="issue"&&inRange(m,f,t)).forEach(m=>{const k=kitById(m.kit_item_id);out.push({k:"stock",d:m.day,c:m.created_at,t:`Kit used · ${esc(k?.name||"Kit item")}`,s:`${num(m.qty)} × ${cedi(m.unit_cost)}`,v:cedi(-num(m.qty)*num(m.unit_cost)),col:"var(--warn)",m:-num(m.qty)*num(m.unit_cost),use:"Massage kit used",open:()=>{}})});
+  (S.therapistPay||[]).filter(p=>inRange(p,f,t)).forEach(p=>out.push({k:"exp",d:p.day,c:p.created_at,t:`Therapist pay · ${esc(therapistName(p.therapist_id))}`,s:esc(p.note||"Monthly pay"),v:"−"+cedi(p.amount),col:"var(--warn)",m:-num(p.amount),use:"Therapist pay (from personal share)",open:()=>{}}));
+  return out;
+}
+
+/* ---- loading ---- */
+async function loadMassage(){
+  const [svc,kit,skit,kmv,th,bk,dl,bp,tp]=await Promise.all([
+    api("/services?select=*&order=sort.asc"),api("/kit_items?select=*&order=name.asc"),api("/service_kit?select=*"),
+    api("/kit_moves?select=*&order=created_at.desc"),api("/therapists?select=*&order=no.asc"),
+    api("/bookings?select=*&order=created_at.desc"),api("/deliveries?select=*&order=created_at.desc"),
+    api("/booking_payments?select=*&order=created_at.desc"),api("/therapist_pay?select=*&order=created_at.desc")]);
+  Object.assign(S,{services:svc||[],kitItems:kit||[],serviceKit:skit||[],kitMoves:kmv||[],therapists:th||[],bookings:bk||[],deliveries:dl||[],bookingPayments:bp||[],therapistPay:tp||[]});
+}
+
+/* ---- sessions screen ---- */
+function renderSessions(){
+  const r=$("scr-sessions");
+  const [f,t]=period("month"), monthName=fmtDay(day,{month:"long"});
+  const delivered=(S.deliveries||[]).filter(d=>inRange(d,f,t)).length;
+  const toDo=(S.bookings||[]).filter(b=>b.status==="open").length;
+  const owed=(S.bookings||[]).filter(b=>b.status!=="cancelled").reduce((a,b)=>a+balanceOf(b),0);
+  const kitCost=massageKit(f,t);
+  const list=(S.bookings||[]).filter(b=>sesFilter==="all"||(sesFilter==="open"&&b.status==="open")||(sesFilter==="owed"&&b.status!=="cancelled"&&balanceOf(b)>0)||(sesFilter==="done"&&b.status==="done")).slice(0,150);
+  r.innerHTML=`
+    <div class="grid2 kpis">
+      <div class="tile"><b>${delivered}</b><span>sessions delivered · ${monthName}</span></div>
+      <div class="tile"><b>${toDo}</b><span>booked, not yet delivered</span></div>
+      <div class="tile"><b>${cedi(massageIn(f,t))}</b><span>money in · ${monthName}</span></div>
+      <div class="tile"><b>${cedi(owed)}</b><span>still owed by clients</span></div>
+    </div>
+    <button class="btn-primary btn-block" id="sesNew" style="min-height:54px">+ New booking</button>
+    <div class="seg" style="margin:12px 0"><button data-seg="ses" data-v="open" aria-pressed="${sesFilter==="open"}">To deliver</button><button data-seg="ses" data-v="owed" aria-pressed="${sesFilter==="owed"}">Still owed</button><button data-seg="ses" data-v="done" aria-pressed="${sesFilter==="done"}">Done</button><button data-seg="ses" data-v="all" aria-pressed="${sesFilter==="all"}">All</button></div>
+    <div class="wide">
+      ${list.map(b=>{const paid=paidOf(b.id),bal=balanceOf(b),left=num(b.sessions_total)-num(b.sessions_used);const cancelled=b.status==="cancelled";return `
+      <div class="card">
+        <button class="item" data-bkopen="${b.id}" style="padding:0;width:100%">
+          <span class="grow"><span class="t">${esc(b.service_name)} ${srcPill(b.source)} ${cancelled?'<span class="pill off">cancelled</span>':b.status==="done"?'<span class="pill good">all delivered</span>':""}</span>
+          <span class="s">${esc(b.customer||"No name")} · booked ${fmtDay(b.day)}</span>
+          <span class="s">${num(b.sessions_used)} of ${num(b.sessions_total)} session${num(b.sessions_total)===1?"":"s"} delivered · ${esc(therapistName(b.therapist_id))}</span>
+          <span class="s">paid ${cedi(paid)} · ${bal>0?`<span style="color:var(--warn)">owes ${cedi(bal)}</span>`:`<span style="color:var(--good)">fully paid</span>`}</span></span>
+          <span class="r"><b>${cedi(b.price)}</b></span>
+        </button>
+        ${!cancelled&&b.status==="open"&&left>0||(!cancelled&&bal>0)?`<div class="grid2" style="margin-top:10px">
+          ${b.status==="open"&&left>0?`<button class="btn-primary" data-deliver="${b.id}">Deliver session</button>`:"<span></span>"}
+          ${bal>0?`<button data-pay="${b.id}">Take payment</button>`:"<span></span>"}
+        </div>`:""}
+      </div>`}).join("")||`<div class="card"><p class="empty">${sesFilter==="open"?"Nothing waiting to be delivered. Tap + New booking.":"No bookings here yet."}</p></div>`}
+    </div>
+    <p class="small muted">Kit used this month: ${cedi(kitCost)}. It is counted when a session is delivered, and a plan's kit is counted on its first session.</p>`;
+  wireSeg(r,"ses",v=>{sesFilter=v;renderSessions()});
+  $("sesNew").onclick=()=>bookingForm();
+  r.querySelectorAll("[data-bkopen]").forEach(b=>b.onclick=()=>bookingDetail(bookingById(b.dataset.bkopen)));
+  r.querySelectorAll("[data-deliver]").forEach(b=>b.onclick=()=>deliverSheet(bookingById(b.dataset.deliver)));
+  r.querySelectorAll("[data-pay]").forEach(b=>b.onclick=()=>paySheet(bookingById(b.dataset.pay)));
+}
+
+function bookingForm(){
+  const svcs=(S.services||[]).filter(s=>s.active!==false).sort((a,b)=>num(a.sort)-num(b.sort));
+  if(!svcs.length){toast("Add a service first, in Stock.",true);return}
+  let src="direct";
+  openSheet("New booking",`
+    <label class="f">Service<select id="bkSvc">${svcs.map(s=>`<option value="${esc(s.id)}">${esc(s.name)} · ${cedi(s.price)}</option>`).join("")}</select></label>
+    <label class="f">Booking date<input id="bkDay" type="date" value="${day}"></label>
+    <label class="f">Client name<input id="bkName" placeholder="e.g. Ama K."></label>
+    <label class="f">Client phone (optional)<input id="bkPhone" inputmode="tel"></label>
+    <div><span style="font-weight:700;font-size:.9rem">Where did the booking come from?</span><div class="chips" style="margin-top:6px">${SRC.map(([k,l])=>`<button type="button" class="chip" data-chip="bksrc" data-v="${k}" aria-pressed="${k==="direct"}">${l}</button>`).join("")}</div></div>
+    <label class="f">Price agreed (GH₵)<input id="bkPrice" type="number" min="0" step="1" inputmode="decimal" value="${num(svcs[0].price)}"></label>
+    <label class="f">Deposit paid now (GH₵, 0 for none)<input id="bkDep" type="number" min="0" step="1" inputmode="decimal" value="0"></label>
+    <div><span style="font-weight:700;font-size:.9rem">How was the deposit paid?</span><div class="chips" style="margin-top:6px"><button type="button" class="chip" data-chip="bkmeth" data-v="cash" aria-pressed="true">Cash</button><button type="button" class="chip" data-chip="bkmeth" data-v="momo" aria-pressed="false">MoMo</button></div></div>
+    <label class="f">Therapist (optional)<select id="bkTher"><option value="">Not chosen yet</option>${liveTherapists().map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("")}</select></label>
+    <label class="f">Note (optional)<input id="bkNote"></label>
+    <button class="btn-primary btn-block" id="bkBtn">Save booking</button>`,root=>{
+    let meth="cash";
+    $("bkSvc").onchange=e=>{const s=svcById(e.target.value);$("bkPrice").value=num(s?.price)};
+    wireChips(root,"bksrc",v=>src=v);
+    wireChips(root,"bkmeth",v=>meth=v);
+    $("bkBtn").onclick=()=>{
+      const s=svcById($("bkSvc").value), price=num($("bkPrice").value), dep=num($("bkDep").value);
+      if(!s) return;
+      if(!$("bkName").value.trim()){toast("Enter the client's name.",true);return}
+      if($("bkPrice").value===""||price<0){toast("Enter the price agreed.",true);return}
+      if(dep<0||dep>price){toast("The deposit cannot be more than the price.",true);return}
+      const row={day:$("bkDay").value||day,service_id:s.id,service_name:s.name,kind:s.kind,customer:$("bkName").value.trim(),phone:$("bkPhone").value.trim(),price,source:src,therapist_id:$("bkTher").value||null,sessions_total:num(s.sessions)||1,sessions_used:0,status:"open",note:$("bkNote").value.trim()};
+      run($("bkBtn"),"save the booking",async()=>{
+        const [b]=await api("/bookings",{method:"POST",prefer:"return=representation",body:row});
+        if(dep>0) await ins("booking_payments",{day:row.day,booking_id:b.id,amount:dep,kind:"deposit",method:meth,note:"Deposit"});
+      },"Booking saved");
+    };
+  });
+}
+
+function deliverSheet(b){
+  if(!b) return;
+  const n=num(b.sessions_used)+1;
+  if(n>num(b.sessions_total)){toast("All sessions for this booking are already delivered.",true);return}
+  const recipe=recipeOf(b.service_id);
+  const first=n===1;
+  const kitTotal=recipe.reduce((t,r)=>t+r.qty*num(r.item.cost),0);
+  openSheet(`Deliver session ${n} of ${num(b.sessions_total)}`,`
+    <p class="muted">${bookingLine(b)}</p>
+    <label class="f">Date delivered<input id="dvDay" type="date" value="${day}"></label>
+    <label class="f">Therapist<select id="dvTher"><option value="">Not chosen</option>${liveTherapists().map(t=>`<option value="${t.id}" ${t.id===b.therapist_id?"selected":""}>${esc(t.name)}</option>`).join("")}</select></label>
+    <div class="card" style="padding:12px 14px"><b>Kit used</b>
+      ${!first?`<p class="small muted">Nothing is taken from stock for this session. The kit was given out on session 1 and stays with the client.</p>`
+        :recipe.length?`<p class="small muted">Taken from stock now. Kit given out is not taken back, so it counts as this booking's cost.</p>
+          ${recipe.map(r=>`<div class="row between"><span>${esc(r.item.name)} × ${r.qty}${kitStockOf(r.item.id)<r.qty?` <span class="pill warn">not enough in stock</span>`:""}</span><span>${cedi(r.qty*num(r.item.cost))}</span></div>`).join("")}
+          <div class="row between"><b>Kit cost</b><b>${cedi(kitTotal)}</b></div>`
+        :`<p class="small muted">No kit is set up for this service yet. Set it in Stock, under Services.</p>`}
+    </div>
+    <label class="f">Note (optional)<input id="dvNote"></label>
+    <button class="btn-primary btn-block" id="dvBtn">Confirm delivery</button>`,root=>{
+    $("dvBtn").onclick=()=>run($("dvBtn"),"record the delivery",async()=>{
+      const d={day:$("dvDay").value||day,booking_id:b.id,session_no:n,therapist_id:$("dvTher").value||null,note:$("dvNote").value.trim()};
+      await ins("deliveries",d);
+      if(first&&recipe.length) await ins("kit_moves",recipe.map(r=>({day:d.day,kit_item_id:r.item.id,kind:"issue",qty:r.qty,unit_cost:num(r.item.cost),booking_id:b.id,note:"Kit for "+b.service_name})));
+      await upd("bookings",b.id,{sessions_used:n,status:n>=num(b.sessions_total)?"done":"open",therapist_id:b.therapist_id||d.therapist_id});
+    },"Session "+n+" delivered");
+  });
+}
+
+function paySheet(b){
+  if(!b) return;
+  const bal=balanceOf(b);
+  openSheet("Take payment",`
+    <p class="muted">${bookingLine(b)} · price ${cedi(b.price)} · still owed <b>${cedi(bal)}</b></p>
+    <label class="f">Amount (GH₵)<input id="pyAmt" type="number" min="0" step="1" inputmode="decimal" value="${bal}"></label>
+    <div><span style="font-weight:700;font-size:.9rem">What is it?</span><div class="chips" style="margin-top:6px"><button type="button" class="chip" data-chip="pykind" data-v="deposit" aria-pressed="false">Deposit</button><button type="button" class="chip" data-chip="pykind" data-v="payment" aria-pressed="true">Payment</button></div></div>
+    <div><span style="font-weight:700;font-size:.9rem">How was it paid?</span><div class="chips" style="margin-top:6px"><button type="button" class="chip" data-chip="pymeth" data-v="cash" aria-pressed="true">Cash</button><button type="button" class="chip" data-chip="pymeth" data-v="momo" aria-pressed="false">MoMo</button></div></div>
+    <label class="f">Note (optional)<input id="pyNote"></label>
+    <button class="btn-primary btn-block" id="pyBtn">Save payment</button>`,root=>{
+    let kind="payment",meth="cash";
+    wireChips(root,"pykind",v=>kind=v);wireChips(root,"pymeth",v=>meth=v);
+    $("pyBtn").onclick=()=>{
+      const a=num($("pyAmt").value);
+      if(!(a>0)){toast("Enter the amount.",true);return}
+      if(a>balanceOf(b)){toast("That is more than the amount still owed.",true);return}
+      run($("pyBtn"),"save the payment",()=>ins("booking_payments",{day,booking_id:b.id,amount:a,kind,method:meth,note:$("pyNote").value.trim()}),"Payment saved");
+    };
+  });
+}
+
+function bookingDetail(b){
+  if(!b) return;
+  const paid=paidOf(b.id), bal=balanceOf(b), dl=deliveriesOf(b.id), pays=(S.bookingPayments||[]).filter(p=>String(p.booking_id)===String(b.id)).sort((a,c)=>String(c.created_at).localeCompare(String(a.created_at)));
+  const kit=kitIssuedOn(b.id);
+  const canDeliver=b.status==="open"&&num(b.sessions_used)<num(b.sessions_total);
+  const canCancel=b.status!=="cancelled"&&dl.length===0&&pays.length===0;
+  openSheet(b.service_name,`
+    <ul class="list">
+      ${row("Client",esc(b.customer||"No name")+(b.phone?` · ${esc(b.phone)}`:""))}
+      ${row("Booked",fmtDay(b.day,{weekday:"short",day:"numeric",month:"short",year:"numeric"}))}
+      ${row("Where it came from",esc(SRC_NAME[b.source]||b.source))}
+      ${row("Therapist",esc(therapistName(b.therapist_id)))}
+      ${row("Price",cedi(b.price),b.kind==="plan"?"one payment for the whole plan":"")}
+      ${row("Paid so far",cedi(paid))}
+      ${row("Still owed",cedi(bal),"",{strong:true,color:bal>0?"var(--warn)":"var(--good)"})}
+      ${row("Sessions",`${num(b.sessions_used)} of ${num(b.sessions_total)} delivered`)}
+    </ul>
+    ${b.note?`<p class="muted">${esc(b.note)}</p>`:""}
+    <div class="card" style="padding:4px 16px"><h2 style="margin:10px 0 4px">Deliveries</h2>${dl.length?`<ul class="list">${dl.map(d=>`<li><div class="item"><span class="grow"><span class="t">Session ${d.session_no}</span><span class="s">${fmtDay(d.day,{day:"numeric",month:"short",year:"numeric"})} · ${esc(therapistName(d.therapist_id))}</span></span></div></li>`).join("")}</ul>`:`<p class="empty">Nothing delivered yet.</p>`}</div>
+    <div class="card" style="padding:4px 16px"><h2 style="margin:10px 0 4px">Money received</h2>${pays.length?`<ul class="list">${pays.map(p=>`<li><div class="item"><span class="grow"><span class="t">${p.kind==="deposit"?"Deposit":"Payment"} · ${p.method==="momo"?"MoMo":"Cash"}</span><span class="s">${fmtDay(p.day,{day:"numeric",month:"short"})}${p.note?" · "+esc(p.note):""}</span></span><span class="r" style="color:var(--good)"><b>+${cedi(p.amount)}</b></span></div></li>`).join("")}</ul>`:`<p class="empty">No money received yet.</p>`}</div>
+    ${kit.length?`<div class="card" style="padding:4px 16px"><h2 style="margin:10px 0 4px">Kit given out</h2><ul class="list">${kit.map(m=>`<li><div class="item"><span class="grow"><span class="t">${esc(kitById(m.kit_item_id)?.name||"Kit item")}</span><span class="s">${num(m.qty)} × ${cedi(m.unit_cost)}</span></span><span class="r"><b>${cedi(num(m.qty)*num(m.unit_cost))}</b></span></div></li>`).join("")}</ul></div>`:""}
+    ${canDeliver?`<button class="btn-primary btn-block" id="bdDeliver">Deliver session ${num(b.sessions_used)+1}</button>`:""}
+    ${bal>0&&b.status!=="cancelled"?`<button class="btn-block" id="bdPay">Take payment</button>`:""}
+    ${canCancel?`<button class="btn-danger btn-block" id="bdCancel">Cancel this booking</button>`:""}`,root=>{
+    $("bdDeliver")&&($("bdDeliver").onclick=()=>deliverSheet(b));
+    $("bdPay")&&($("bdPay").onclick=()=>paySheet(b));
+    if($("bdCancel")) confirmBtn($("bdCancel"),"Tap again to cancel",()=>run($("bdCancel"),"cancel the booking",()=>upd("bookings",b.id,{status:"cancelled"}),"Booking cancelled"));
+  });
+}
+
+/* ---- kits and services (Stock tab) ---- */
+function massageStockBlock(r){
+  const wide=r.querySelector(".wide");
+  if(!wide) return;
+  const items=(S.kitItems||[]).filter(k=>k.active!==false);
+  const services=(S.services||[]).slice().sort((a,b)=>num(a.sort)-num(b.sort));
+  wide.insertAdjacentHTML("beforeend",`
+    <div class="card"><div class="row between"><h2>Kit items</h2><button class="btn-primary" data-kit-new>+ Kit item</button></div>
+      <p class="small muted">Oil, linen, towels and disposables used in massage. Stock in when you buy; the kit used by each session comes out automatically.</p>
+      ${items.length?`<ul class="list">${items.map(k=>{const n=kitStockOf(k.id);return `<li><div class="item"><span class="grow"><span class="t">${esc(k.name)}</span><span class="s">${cedi(k.cost)} per ${esc(k.unit||"piece")}</span></span><span class="r"><b class="num" style="color:${n<=num(k.low_stock)?"var(--warn)":"var(--fg)"}">${n}</b><span class="small muted"> in stock</span><br><button class="btn-ghost small" data-kit-in="${k.id}">Stock in</button> <button class="btn-ghost small" data-kit-count="${k.id}">Correct count</button> <button class="btn-ghost small" data-kit-edit="${k.id}">Edit</button></span></div></li>`}).join("")}</ul>`:`<p class="empty">No kit items yet. Tap + Kit item to add oil, linen and towels.</p>`}
+    </div>
+    <div class="card"><div class="row between"><h2>Services</h2><button class="btn-primary" data-svc-new>+ Service</button></div>
+      <p class="small muted">What each service costs the client and which kit it uses.</p>
+      ${services.length?`<ul class="list">${services.map(s=>{const rec=recipeOf(s.id);return `<li><div class="item"><span class="grow"><span class="t">${esc(s.name)} ${s.active===false?'<span class="pill off">off</span>':""}</span><span class="s">${cedi(s.price)} · ${num(s.sessions)>1?num(s.sessions)+" sessions":"single session"}</span><span class="s">Kit: ${rec.length?rec.map(x=>esc(x.item.name)+" × "+x.qty).join(", "):"not set yet"}</span></span><span class="r"><button class="btn-ghost small" data-svc-edit="${s.id}">Edit</button><br><button class="btn-ghost small" data-svc-kit="${s.id}">Kit</button></span></div></li>`}).join("")}</ul>`:`<p class="empty">No services yet.</p>`}
+    </div>`);
+  wide.querySelector("[data-kit-new]").onclick=()=>kitForm();
+  wide.querySelector("[data-svc-new]").onclick=()=>serviceForm();
+  wide.querySelectorAll("[data-kit-in]").forEach(b=>b.onclick=()=>kitMoveSheet(kitById(b.dataset.kitIn),"in"));
+  wide.querySelectorAll("[data-kit-count]").forEach(b=>b.onclick=()=>kitMoveSheet(kitById(b.dataset.kitCount),"adjust"));
+  wide.querySelectorAll("[data-kit-edit]").forEach(b=>b.onclick=()=>kitForm(kitById(b.dataset.kitEdit)));
+  wide.querySelectorAll("[data-svc-edit]").forEach(b=>b.onclick=()=>serviceForm(svcById(b.dataset.svcEdit)));
+  wide.querySelectorAll("[data-svc-kit]").forEach(b=>b.onclick=()=>recipeSheet(svcById(b.dataset.svcKit)));
+}
+
+function kitForm(k){
+  openSheet(k?"Edit kit item":"New kit item",`
+    <label class="f">Name<input id="kiName" value="${esc(k?.name)}" placeholder="e.g. Essential oil"></label>
+    <label class="f">Unit (e.g. bottle, piece, sheet)<input id="kiUnit" value="${esc(k?.unit||"piece")}"></label>
+    <label class="f">Cost per unit (GH₵)<input id="kiCost" type="number" min="0" step="0.5" inputmode="decimal" value="${k?num(k.cost):""}"></label>
+    <label class="f">Warn me when below (units)<input id="kiLow" type="number" min="0" step="1" inputmode="numeric" value="${k?num(k.low_stock):5}"></label>
+    <button class="btn-primary btn-block" id="kiBtn">${k?"Save changes":"Add kit item"}</button>
+    ${k?`<button class="btn-danger btn-block" id="kiOff">${k.active===false?"Turn back on":"Turn off (keep history)"}</button>`:""}`,()=>{
+    $("kiBtn").onclick=()=>{
+      const name=$("kiName").value.trim();if(!name){toast("Enter the name.",true);return}
+      const row={name,unit:$("kiUnit").value.trim()||"piece",cost:num($("kiCost").value),low_stock:num($("kiLow").value)};
+      if(k) run($("kiBtn"),"save the kit item",()=>upd("kit_items",k.id,row),"Saved");
+      else run($("kiBtn"),"add the kit item",()=>ins("kit_items",{id:newId(),...row,active:true}),"Kit item added");
+    };
+    if(k) $("kiOff").onclick=()=>run($("kiOff"),"change the kit item",()=>upd("kit_items",k.id,{active:k.active===false}),"Saved");
+  });
+}
+
+function kitMoveSheet(k,mode){
+  if(!k) return;
+  const now=kitStockOf(k.id);
+  openSheet(mode==="in"?`Stock in · ${k.name}`:`Correct count · ${k.name}`,`
+    ${mode==="in"?`<label class="f">How many came in?<input id="kmQty" type="number" min="1" step="1" inputmode="numeric"></label>
+      <label class="f">Cost per unit (GH₵)<input id="kmCost" type="number" min="0" step="0.5" inputmode="decimal" value="${num(k.cost)}"></label>`
+      :`<p class="muted">Right now the app says ${now}. How many do you actually have?</p><label class="f">Counted<input id="kmQty" type="number" min="0" step="1" inputmode="numeric" value="${now}"></label>`}
+    <label class="f">Note (optional)<input id="kmNote"></label>
+    <button class="btn-primary btn-block" id="kmBtn">Save</button>`,()=>{
+    $("kmBtn").onclick=()=>{
+      const q=num($("kmQty").value);
+      if(mode==="in"){
+        if(!(q>0)){toast("Enter how many came in.",true);return}
+        run($("kmBtn"),"save the stock in",()=>ins("kit_moves",{day,kit_item_id:k.id,kind:"in",qty:q,unit_cost:num($("kmCost").value),note:$("kmNote").value.trim()}),"Stock in saved");
+      }else{
+        if($("kmQty").value===""){toast("Enter the count.",true);return}
+        const diff=q-now;
+        if(!diff){closeSheet();return}
+        run($("kmBtn"),"correct the count",()=>ins("kit_moves",{day,kit_item_id:k.id,kind:"adjust",qty:diff,unit_cost:num(k.cost),note:$("kmNote").value.trim()||"Count corrected"}),"Count corrected");
+      }
+    };
+  });
+}
+
+function serviceForm(s){
+  let kind=s?.kind||"single";
+  openSheet(s?"Edit service":"New service",`
+    <label class="f">Name<input id="svName" value="${esc(s?.name)}" placeholder="e.g. Shiatsu massage (single)"></label>
+    <div><span style="font-weight:700;font-size:.9rem">Kind</span><div class="chips" style="margin-top:6px"><button type="button" class="chip" data-chip="svkind" data-v="single" aria-pressed="${kind==="single"}">Single session</button><button type="button" class="chip" data-chip="svkind" data-v="plan" aria-pressed="${kind==="plan"}">Plan</button></div></div>
+    <label class="f">Price (GH₵) — the usual price; each booking can change it<input id="svPrice" type="number" min="0" step="1" inputmode="decimal" value="${s?num(s.price):""}"></label>
+    <label class="f">Sessions included<input id="svSess" type="number" min="1" step="1" inputmode="numeric" value="${s?num(s.sessions):1}"></label>
+    <button class="btn-primary btn-block" id="svBtn">${s?"Save changes":"Add service"}</button>
+    ${s?`<button class="btn-block" id="svOff">${s.active===false?"Turn back on":"Turn off (keep history)"}</button>`:""}`,root=>{
+    wireChips(root,"svkind",v=>kind=v);
+    $("svBtn").onclick=()=>{
+      const name=$("svName").value.trim(),sessions=Math.max(1,num($("svSess").value)||1);
+      if(!name){toast("Enter the name.",true);return}
+      const row={name,kind,price:num($("svPrice").value),sessions:kind==="plan"?sessions:1};
+      if(s) run($("svBtn"),"save the service",()=>upd("services",s.id,row),"Saved");
+      else run($("svBtn"),"add the service",()=>ins("services",{id:newId(),sort:(S.services||[]).reduce((a,x)=>Math.max(a,num(x.sort)),0)+10,...row,active:true}),"Service added");
+    };
+    if(s) $("svOff").onclick=()=>run($("svOff"),"change the service",()=>upd("services",s.id,{active:s.active===false}),"Saved");
+  });
+}
+
+function recipeSheet(s){
+  if(!s) return;
+  const items=(S.kitItems||[]).filter(k=>k.active!==false);
+  if(!items.length){toast("Add kit items first.",true);return}
+  const cur=Object.fromEntries(recipeOf(s.id).map(r=>[r.item.id,r.qty]));
+  openSheet(`Kit for ${s.name}`,`
+    <p class="muted">Tick what one ${s.kind==="plan"?"plan (given on session 1)":"session"} uses, and how many.</p>
+    <ul class="list">${items.map(k=>`<li><div class="item"><label class="grow" style="display:flex;gap:10px;align-items:center"><input type="checkbox" data-rk="${k.id}" ${k.id in cur?"checked":""} style="width:22px;height:22px"><span><span class="t">${esc(k.name)}</span><span class="s">${cedi(k.cost)} per ${esc(k.unit||"piece")}</span></span></label><input type="number" min="1" step="1" inputmode="numeric" data-rq="${k.id}" value="${cur[k.id]||1}" style="width:80px"></div></li>`).join("")}</ul>
+    <button class="btn-primary btn-block" id="rkBtn">Save kit</button>`,()=>{
+    $("rkBtn").onclick=()=>{
+      const rows=items.filter(k=>document.querySelector(`[data-rk="${k.id}"]`).checked).map(k=>({service_id:s.id,kit_item_id:k.id,qty:Math.max(1,num(document.querySelector(`[data-rq="${k.id}"]`).value)||1)}));
+      run($("rkBtn"),"save the kit",async()=>{
+        await api(`/service_kit?service_id=eq.${enc(s.id)}`,{method:"DELETE",prefer:"return=minimal"});
+        if(rows.length) await ins("service_kit",rows);
+      },"Kit saved");
+    };
+  });
+}
+
+/* ---- therapists (Team tab) ---- */
+function teamSeg(){return `<div class="seg" style="margin-bottom:12px"><button data-tseg="marketers" aria-pressed="${teamTab==="marketers"}">Marketers</button><button data-tseg="therapists" aria-pressed="${teamTab==="therapists"}">Therapists</button></div>`}
+function wireTeamSeg(r){r.querySelectorAll("[data-tseg]").forEach(b=>b.onclick=()=>{teamTab=b.dataset.tseg;renderTeam()})}
+
+function renderTherapists(){
+  const r=$("scr-team");
+  const list=liveTherapists();
+  r.innerHTML=`${teamSeg()}
+    <div class="row"><button class="btn-primary" id="thAdd">+ Add therapist</button></div>
+    <div class="card" style="padding:4px 16px">
+      ${list.length?`<ul class="list">${list.map(t=>{const owed=owedThisMonth(t);return `<li><button class="item" data-th="${t.id}"><span class="avatar">${esc(initials(t.name))}</span><span class="grow"><span class="t">${esc(t.name)}</span><span class="s">${esc(t.phone||"No phone yet")} · monthly pay ${cedi(t.monthly_pay)}</span><span class="row" style="gap:6px;margin-top:4px">${owed>0?`<span class="pill warn">owed ${cedi(owed)} this month</span>`:`<span class="pill good">paid this month</span>`}</span></span><span class="r muted">›</span></button></li>`}).join("")}</ul>`:`<p class="empty">No therapists yet. Tap + Add therapist.</p>`}
+    </div>
+    <p class="small muted">Therapists are paid a fixed agreed amount at month end, out of the personal income share of profit. Tap one to pay them or change their details.</p>`;
+  wireTeamSeg(r);
+  $("thAdd").onclick=()=>therapistForm();
+  r.querySelectorAll("[data-th]").forEach(b=>b.onclick=()=>therapistSheet(therapistById(b.dataset.th)));
+}
+
+function therapistForm(t){
+  openSheet(t?"Edit therapist":"Add therapist",`
+    <label class="f">Name<input id="thName" value="${esc(t?.name)}"></label>
+    <label class="f">Phone (optional)<input id="thPhone" inputmode="tel" value="${esc(t?.phone)}"></label>
+    <label class="f">Agreed monthly pay (GH₵)<input id="thPay" type="number" min="0" step="50" inputmode="decimal" value="${t?num(t.monthly_pay):""}"></label>
+    <button class="btn-primary btn-block" id="thBtn">${t?"Save changes":"Add therapist"}</button>`,()=>{
+    $("thBtn").onclick=()=>{
+      const name=$("thName").value.trim();if(!name){toast("Enter the name.",true);return}
+      const row={name,phone:$("thPhone").value.trim(),monthly_pay:num($("thPay").value)};
+      if(t) run($("thBtn"),"save the therapist",()=>upd("therapists",t.id,row),"Saved");
+      else run($("thBtn"),"add the therapist",()=>ins("therapists",{id:newId(),no:(S.therapists||[]).reduce((a,x)=>Math.max(a,num(x.no)),0)+1,...row,active:true,joined:todayISO()}),"Therapist added");
+    };
+  });
+}
+
+function therapistSheet(t){
+  if(!t) return;
+  const owed=owedThisMonth(t);
+  openSheet(t.name,`
+    <ul class="list">
+      ${row("Agreed monthly pay",cedi(t.monthly_pay))}
+      ${row("Still owed this month",cedi(owed),"",{strong:true,color:owed>0?"var(--warn)":"var(--good)"})}
+      ${row("Phone",esc(t.phone||"not given"))}
+    </ul>
+    ${owed>0?`<label class="f">Amount paid now (GH₵)<input id="tpAmt" type="number" min="0" step="10" inputmode="decimal" value="${owed}"></label>
+      <label class="f">Note (optional)<input id="tpNote" placeholder="e.g. October pay"></label>
+      <button class="btn-primary btn-block" id="tpBtn">Record pay</button>`:""}
+    <button class="btn-block" id="tpEdit">Edit details</button>
+    <button class="btn-danger btn-block" id="tpRemove">Remove therapist</button>`,()=>{
+    if($("tpBtn")) $("tpBtn").onclick=()=>{
+      const a=num($("tpAmt").value);if(!(a>0)){toast("Enter the amount.",true);return}
+      run($("tpBtn"),"record the pay",()=>ins("therapist_pay",{day,therapist_id:t.id,amount:a,note:$("tpNote").value.trim()}),"Pay recorded");
+    };
+    $("tpEdit").onclick=()=>therapistForm(t);
+    confirmBtn($("tpRemove"),"Tap again to remove",()=>run($("tpRemove"),"remove the therapist",()=>upd("therapists",t.id,{removed_at:new Date().toISOString(),active:false}),"Therapist removed"));
   });
 }
 

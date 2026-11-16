@@ -105,7 +105,7 @@ tfoot th,tfoot td{border-bottom:0;color:var(--fg);font-size:.95rem}
 main{max-width:1040px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-right,0px)) calc(var(--nav-h) + 28px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
 .screen{display:flex;flex-direction:column;gap:14px}
 .nav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
-.nav .in{max-width:640px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);height:var(--nav-h)}
+.nav .in{max-width:640px;margin:0 auto;display:grid;grid-template-columns:repeat(6,1fr);height:var(--nav-h)}
 .nav button{border:0;background:transparent;border-radius:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:.72rem;font-weight:700;color:var(--muted);padding:0;min-height:var(--nav-h)}
 .nav button svg{width:24px;height:24px}
 .nav button[aria-current="page"]{color:var(--accent)}
