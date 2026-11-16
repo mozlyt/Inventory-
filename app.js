@@ -679,10 +679,14 @@ function moneyFigures(f,t){
   let stockUnits=0,stockCost=0,stockPrice=0;
   S.products.forEach(p=>{const n=Math.max(0,stockOf(p.id).total);stockUnits+=n;stockCost+=n*Number(p.cost||0);stockPrice+=n*Number(p.price||0)});
   const savingsHeld=S.marketers.reduce((a,m)=>a+moneyOf(m.id).saved,0);
-  const mpay=savIn, profit=gross+savIn-expenses;  // estimated profit = gross profit + savings (− expenses, if any)
-  return {sales,pays,exps,savs,received,expenses,stockBought,spent:stockBought+expenses,savIn,savOut,revenue,cost,gross,mpay,net:profit,withMarketers,customersOwe,toCollect:withMarketers+customersOwe,stockUnits,stockCost,stockPrice,savingsHeld};
+  const mpay=savIn, profit=gross-expenses;  // profit after expenses. Savings belong to the marketers, so they are not profit
+  const split=SPLIT.map(([n,p])=>({n,p,v:profit*p}));
+  return {sales,pays,exps,savs,received,expenses,stockBought,spent:stockBought+expenses,savIn,savOut,revenue,cost,gross,mpay,net:profit,split,withMarketers,customersOwe,toCollect:withMarketers+customersOwe,stockUnits,stockCost,stockPrice,savingsHeld};
 }
 const row=(label,val,sub,opts={})=>`<li><div class="item"><span class="grow"><span class="${opts.strong?"t":""}">${label}</span>${sub?`<span class="s" style="white-space:normal">${sub}</span>`:""}</span><span class="r" ${opts.color?`style="color:${opts.color}"`:""}>${opts.strong?`<b>${val}</b>`:val}</span></div></li>`;
+
+const SPLIT=[["Reinvestment",0.4],["Personal income",0.3],["Business reserve",0.2],["Unallocated profit",0.1]];
+const splitRows=F=>F.split.map(s=>row(s.n,cedi(s.v),Math.round(s.p*100)+"% of profit after expenses")).join("");
 
 function renderMoney(){
   const r=$("scr-money");
@@ -697,7 +701,7 @@ function renderMoney(){
       <div class="grid2 kpis">
         <div class="tile"><b>${cedi(F.gross)}</b><span>gross profit</span></div>
         <div class="tile"><b>${cedi(F.savIn)}</b><span>total savings</span></div>
-        <div class="tile accent"><b style="color:${F.net>=0?"var(--good)":"var(--bad)"}">${cedi(F.net)}</b><span>estimated profit</span></div>
+        <div class="tile accent"><b style="color:${F.net>=0?"var(--good)":"var(--bad)"}">${cedi(F.net)}</b><span>profit after expenses</span></div>
         <div class="tile"><b>${cedi(F.toCollect)}</b><span>still to collect</span></div>
       </div>
       <div class="fab-row" style="grid-template-columns:repeat(3,minmax(0,1fr))">
@@ -720,10 +724,11 @@ function renderMoney(){
             ${row("Sales",cedi(F.revenue),sumQty(F.sales)+" items, including pay-later")}
             ${row("Cost of items sold","− "+cedi(F.cost))}
             ${row("Gross profit",cedi(F.gross),"sales − cost",{strong:true})}
-            ${row("Total savings","+ "+cedi(F.savIn),"saved this month")}
             ${row("Expenses","− "+cedi(F.expenses),F.exps.length?`${F.exps.length} recorded this month`:"none recorded yet")}
-            ${row("Estimated profit",cedi(F.net),"gross profit + savings − expenses",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
+            ${row("Profit after expenses",cedi(F.net),"gross profit − expenses",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
           </ul>
+          <p class="small muted" style="margin:14px 0 4px">How the profit is shared</p>
+          <ul class="list">${splitRows(F)}</ul>
           ${missing.length?`<div class="alert info"><span>ℹ️</span><span>Set the <b>cost price</b> for ${missing.map(p=>esc(p.name)).join(", ")} (Settings ⚙), or profit will look higher than it is.</span></div>`:""}
         </div>
         <div class="card"><div class="row between"><h2>Expenses in ${monthName}</h2><button class="btn-primary" id="ovExp2">+ Record</button></div>
@@ -808,10 +813,10 @@ function renderMoney(){
         ${row("Sales",cedi(F.revenue),sumQty(rows)+" items")}
         ${row("Cost of items sold","− "+cedi(F.cost))}
         ${row("Gross profit",cedi(F.gross),"sales − cost",{strong:true})}
-        ${row("Total savings","+ "+cedi(F.savIn))}
         ${row("Expenses","− "+cedi(F.expenses))}
-        ${row("Estimated profit",cedi(F.net),"gross profit + savings − expenses",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
-      </ul></div>
+        ${row("Profit after expenses",cedi(F.net),"gross profit − expenses",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}
+      </ul>
+      <h2 style="margin-top:14px">How the profit is shared</h2><ul class="list">${splitRows(F)}</ul></div>
       <div class="card"><h2>Expenses</h2>${Object.keys(byC).length?`<ul class="list">${Object.keys(byC).sort((a,b)=>byC[b]-byC[a]).map(c=>row(esc(c),cedi(byC[c]))).join("")}</ul>`:`<p class="empty">No expenses in this period.</p>`}</div>
       <div class="card full"><h2>By marketer</h2><div class="tbl"><table><thead><tr><th>Marketer</th><th class="r">Items</th><th class="r">Days</th><th class="r">Sales</th><th class="r">Profit</th><th class="r">Handed in</th><th class="r">Their pay</th></tr></thead>
         <tbody>${agg.length?agg.map(x=>`<tr><td>${esc(x.m.name)}</td><td class="r">${x.u}</td><td class="r">${x.d}</td><td class="r">${cedi(x.v)}</td><td class="r">${cedi(x.pr)}</td><td class="r">${cedi(x.p)}</td><td class="r">${cedi(x.sv)}</td></tr>`).join(""):`<tr><td colspan="7" class="empty">No sales in this period.</td></tr>`}</tbody>
