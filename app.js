@@ -105,6 +105,8 @@ function period(kind){
   const m=day.slice(0,7);const [y,mm]=m.split("-").map(Number);const last=new Date(y,mm,0).getDate();return [m+"-01",`${m}-${String(last).padStart(2,"0")}`];
 }
 
+function dayList(f,t){const out=[];let d=new Date(f+"T00:00:00Z");const end=new Date(t+"T00:00:00Z");while(d<=end&&out.length<62){out.push(d.toISOString().slice(0,10));d.setUTCDate(d.getUTCDate()+1)}return out}
+
 /* =================== UI HELPERS =================== */
 let toastT;
 function toast(msg,bad){const t=$("toast");t.textContent=msg;t.className="toast"+(bad?" bad":"");t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,2600)}
@@ -837,6 +839,14 @@ function renderMoney(){
         ${agg.length?`<tfoot><tr><th>Total</th><th class="r">${sumQty(rows)}</th><th></th><th class="r">${cedi(F.revenue)}</th><th class="r">${cedi(F.gross)}</th><th class="r">${cedi(F.received)}</th><th class="r">${cedi(F.mpay)}</th></tr></tfoot>`:""}</table></div></div>
       <div class="card full"><h2>By product</h2><div class="tbl"><table><thead><tr><th>Product</th><th class="r">Sold</th><th class="r">Sales</th><th class="r">Cost</th><th class="r">Profit</th><th class="r">Margin</th></tr></thead><tbody>${pk.length?pk.map(k=>`<tr><td>${esc(k)}</td><td class="r">${byP[k].u}</td><td class="r">${cedi(byP[k].v)}</td><td class="r">${cedi(byP[k].v-byP[k].pr)}</td><td class="r">${cedi(byP[k].pr)}</td><td class="r">${byP[k].v?Math.round(byP[k].pr/byP[k].v*100):0}%</td></tr>`).join(""):`<tr><td colspan="6" class="empty">Nothing sold.</td></tr>`}</tbody>
         ${pk.length?`<tfoot><tr><th>Total</th><th class="r">${sumQty(rows)}</th><th class="r">${cedi(F.revenue)}</th><th class="r">${cedi(F.cost)}</th><th class="r">${cedi(F.gross)}</th><th class="r">${F.revenue?Math.round(F.gross/F.revenue*100):0}%</th></tr></tfoot>`:""}</table></div></div>
+      <div class="card full"><h2>Daily record</h2><p class="small muted" style="margin:0 0 8px">One line for each day with activity in this period, newest first.</p>
+        ${(()=>{const days=dayList(f,t).reverse().map(d=>({d,F:moneyFigures(d,d)})).filter(x=>x.F.revenue||x.F.massageIn||x.F.expenses||x.F.received||x.F.savIn||x.F.savOut||x.F.stockBought);
+          if(!days.length) return `<p class="empty">Nothing recorded in this period.</p>`;
+          const tot=days.reduce((a,x)=>{a.rev+=x.F.revenue;a.mIn+=x.F.massageIn;a.gross+=x.F.gross;a.exp+=x.F.expenses;a.net+=x.F.net;a.rec+=x.F.received;return a},{rev:0,mIn:0,gross:0,exp:0,net:0,rec:0});
+          return `<div class="tbl"><table><thead><tr><th>Day</th><th class="r">Sales</th><th class="r">Massage in</th><th class="r">Gross profit</th><th class="r">Expenses</th><th class="r">Profit after expenses</th><th class="r">Handed in</th></tr></thead>
+            <tbody>${days.map(({d,F})=>`<tr><td>${fmtDay(d,{weekday:"short",day:"numeric",month:"short"})}</td><td class="r">${cedi(F.revenue)}</td><td class="r">${cedi(F.massageIn)}</td><td class="r">${cedi(F.gross)}</td><td class="r">${cedi(F.expenses)}</td><td class="r" style="color:${F.net>=0?"var(--good)":"var(--bad)"}"><b>${cedi(F.net)}</b></td><td class="r">${cedi(F.received)}</td></tr>`).join("")}</tbody>
+            <tfoot><tr><th>Total</th><th class="r">${cedi(tot.rev)}</th><th class="r">${cedi(tot.mIn)}</th><th class="r">${cedi(tot.gross)}</th><th class="r">${cedi(tot.exp)}</th><th class="r">${cedi(tot.net)}</th><th class="r">${cedi(tot.rec)}</th></tr></tfoot></table></div>`})()}
+      </div>
       </div>`;
   }
   r.innerHTML=`<div class="seg">${tabs.map(([k,l])=>`<button data-seg="mt" data-v="${k}" aria-pressed="${moneyTab===k}">${l}</button>`).join("")}</div>${body}`;
