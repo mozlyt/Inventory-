@@ -739,6 +739,34 @@ const row=(label,val,sub,opts={})=>`<li><div class="item"><span class="grow"><sp
 const SPLIT=[["Reinvestment",0.4],["Personal income",0.3],["Business reserve",0.2],["Unallocated profit",0.1]];
 const splitRows=F=>F.split.map(s=>row(s.n,cedi(s.v),s.sub)).join("");
 
+/* Record lists for the Reports tab. The record starts yesterday; nothing before RECORD_START is shown. */
+const RECORD_START="2026-11-19";
+const dayRange=(f,t)=>{const out=[];for(let d=f;d<=t&&out.length<400;d=addDays(d,1))out.push(d);return out};
+const weekStartOf=d=>{const x=new Date(d+"T12:00");return addDays(d,-((x.getDay()+6)%7))};
+const dayTitle=d=>{const today=todayISO();return d===today?"Today":d===addDays(today,-1)?"Yesterday":fmtDay(d,{weekday:"long",day:"numeric",month:"long",year:"numeric"})};
+function recordCard(title,sub,f,t){
+  const F=moneyFigures(f,t);
+  const active=F.revenue||F.massageIn||F.expenses||F.received||F.savIn||F.savOut||F.stockBought;
+  return `<div class="card full"><div class="row between" style="align-items:baseline"><h2>${title}</h2>${sub?`<span class="small muted">${sub}</span>`:""}</div>
+    ${active?`<ul class="list">${row("Sales",cedi(F.revenue),sumQty(F.sales)+" items")}${row("Massage money in","+ "+cedi(F.massageIn))}${row("Cost of items sold","− "+cedi(F.cost))}${row("Massage kit used","− "+cedi(F.massageKit))}${row("Gross profit",cedi(F.gross),"",{strong:true})}${row("Expenses","− "+cedi(F.expenses))}${row("Profit after expenses",cedi(F.net),"",{strong:true,color:F.net>=0?"var(--good)":"var(--bad)"})}${row("Handed in by marketers",cedi(F.received))}</ul>`:`<p class="empty">Nothing recorded.</p>`}
+  </div>`;
+}
+function recordCards(mode){
+  const today=todayISO();
+  if(mode==="week"){
+    const out=[];
+    for(let w=weekStartOf(today);w>=weekStartOf(RECORD_START);w=addDays(w,-7)){
+      const we=addDays(w,6), f=w<RECORD_START?RECORD_START:w, t=we>today?today:we;
+      out.push(recordCard("Week of "+fmtDay(w,{day:"numeric",month:"long",year:"numeric"}),`${fmtDay(f,{day:"numeric",month:"short"})} – ${fmtDay(t,{day:"numeric",month:"short"})}`,f,t));
+    }
+    return out.join("")||`<p class="empty">No weeks recorded yet.</p>`;
+  }
+  let f,t;
+  if(mode==="month"){const [mf,mt]=period("month");f=mf<RECORD_START?RECORD_START:mf;t=mt>today?today:mt}
+  else{f=RECORD_START;t=today}
+  const days=dayRange(f,t).reverse();
+  return days.map(d=>recordCard(dayTitle(d),"",d,d)).join("")||`<p class="empty">No days recorded yet.</p>`;
+}
 function renderMoney(){
   const r=$("scr-money");
   if(!["overview","transactions","people","savings","reports"].includes(moneyTab)) moneyTab="overview";
@@ -879,9 +907,7 @@ function renderMoney(){
         ${agg.length?`<tfoot><tr><th>Total</th><th class="r">${sumQty(rows)}</th><th></th><th class="r">${cedi(F.revenue)}</th><th class="r">${cedi(F.gross)}</th><th class="r">${cedi(F.received)}</th><th class="r">${cedi(F.mpay)}</th></tr></tfoot>`:""}</table></div></div>
       <div class="card full"><h2>By product</h2><div class="tbl"><table><thead><tr><th>Product</th><th class="r">Sold</th><th class="r">Sales</th><th class="r">Cost</th><th class="r">Profit</th><th class="r">Margin</th></tr></thead><tbody>${pk.length?pk.map(k=>`<tr><td>${esc(k)}</td><td class="r">${byP[k].u}</td><td class="r">${cedi(byP[k].v)}</td><td class="r">${cedi(byP[k].v-byP[k].pr)}</td><td class="r">${cedi(byP[k].pr)}</td><td class="r">${byP[k].v?Math.round(byP[k].pr/byP[k].v*100):0}%</td></tr>`).join(""):`<tr><td colspan="6" class="empty">Nothing sold.</td></tr>`}</tbody>
         ${pk.length?`<tfoot><tr><th>Total</th><th class="r">${sumQty(rows)}</th><th class="r">${cedi(F.revenue)}</th><th class="r">${cedi(F.cost)}</th><th class="r">${cedi(F.gross)}</th><th class="r">${F.revenue?Math.round(F.gross/F.revenue*100):0}%</th></tr></tfoot>`:""}</table></div></div>
-      <div class="card full"><h2>Today's record</h2><p class="small muted" style="margin:0 0 8px">${fmtDay(todayISO(),{weekday:"long",day:"numeric",month:"long"})}. Each day is kept by its date; this card shows today only.</p>
-        ${(()=>{const T=moneyFigures(todayISO(),todayISO());
-          return `<ul class="list">${row("Sales",cedi(T.revenue),sumQty(T.sales)+" items")}${row("Massage money in","+ "+cedi(T.massageIn))}${row("Cost of items sold","− "+cedi(T.cost))}${row("Massage kit used","− "+cedi(T.massageKit))}${row("Gross profit",cedi(T.gross),"sales − cost",{strong:true})}${row("Expenses","− "+cedi(T.expenses))}${row("Profit after expenses",cedi(T.net),"gross profit − expenses",{strong:true,color:T.net>=0?"var(--good)":"var(--bad)"})}${row("Handed in by marketers",cedi(T.received))}${row("Stock bought","− "+cedi(T.stockBought))}</ul>`})()}
+      ${recordCards(reportPeriod)}
       </div>
       </div>`;
   }
