@@ -332,20 +332,29 @@ function saleEdit(s){
 function confirmBtn(btn,ask,fn){let armed=false;btn.onclick=()=>{if(!armed){armed=true;const t=btn.textContent;btn.textContent=ask;setTimeout(()=>{armed=false;btn.textContent=t},3500);return}fn()}}
 
 /* =================== STOCK =================== */
-/* Stock money: money put into stock + sales of stock − cost of stock bought. A restock takes from it. */
-const stockFunds=()=>(S.stockFunds||[]).reduce((a,x)=>a+Number(x.amount),0);
-const stockBoughtAll=()=>S.moves.filter(m=>m.kind==="in").reduce((a,m)=>a+Number(m.qty)*Number(m.unit_cost||0),0);
-const stockSoldAll=()=>sumVal(S.sales);
-const stockMoney=()=>stockFunds()+stockSoldAll()-stockBoughtAll();
+/* Cash in your hand for restocking. Starts from the amount you type as "in hand" (the starting point).
+   Sales received add to it, restocks take from it. Anything from before the starting point is not counted. */
+const fundOpen=()=>(S.stockFunds||[]).filter(x=>x.kind==="open").sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))[0]||null;
+const afterOpen=(x,o)=>!o||String(x.created_at)>String(o.created_at);
+function stockMoney(){
+  const o=fundOpen();
+  const base=o?Number(o.amount):0;
+  const added=(S.stockFunds||[]).filter(x=>x.kind!=="open"&&afterOpen(x,o)).reduce((a,x)=>a+Number(x.amount),0);
+  const sold=S.sales.filter(s=>(s.method!=="credit"||s.paid_at)&&afterOpen(s,o)).reduce((a,s)=>a+Number(s.qty)*Number(s.price),0);
+  const spent=S.moves.filter(m=>m.kind==="in"&&afterOpen(m,o)).reduce((a,m)=>a+Number(m.qty)*Number(m.unit_cost||0),0);
+  return base+added+sold-spent;
+}
 const stockOnHandCost=()=>liveProducts().reduce((a,p)=>a+Math.max(0,stockOf(p.id).total)*Number(p.cost||0),0);
-function fundSheet(){
-  openSheet("Add money for stock",`
-    <p class="muted">Money you put into stock. Sales add to it on their own, and each restock takes from it. Add money only when you put more in.</p>
-    <label class="f">How much (GH₵)<input id="fdA" type="number" min="0" step="0.5" inputmode="decimal" placeholder="e.g. 500"></label>
-    <label class="f">Note (optional)<input id="fdN" placeholder="e.g. put in from savings"></label>
+function fundSheet(mode){ // "open" = type what is in your hand now; "add" = you put more money in
+  const isOpen=mode==="open";
+  openSheet(isOpen?"Cash in your hand":"Add money for stock",`
+    <p class="muted">${isOpen?"Type exactly the cash you have in your hand for restocking now. From here, sales add to it and restocks take from it. Older money is not counted.":"Money you put in from your own pocket. Sales add to the cash on their own."}</p>
+    <label class="f">${isOpen?"Cash in your hand now (GH₵)":"How much you put in (GH₵)"}<input id="fdA" type="number" min="0" step="0.5" inputmode="decimal" placeholder="e.g. 900"></label>
+    <label class="f">Note (optional)<input id="fdN" placeholder="${isOpen?"e.g. starting point":"e.g. from my own money"}"></label>
     <button class="btn-primary btn-block" id="fdBtn">Save</button>`,()=>{
-    $("fdBtn").onclick=()=>{const a=Number($("fdA").value);if(!(a>0)){toast("Enter how much.",true);return}
-      run($("fdBtn"),"save the money",()=>ins("stock_funds",{day,amount:a,note:$("fdN").value.trim()}),"Money added to stock")};
+    $("fdBtn").onclick=()=>{const v=$("fdA").value,a=Number(v);
+      if(v===""||a<0||(!isOpen&&a===0)){toast("Enter how much.",true);return}
+      run($("fdBtn"),"save the money",()=>ins("stock_funds",{day,amount:a,note:$("fdN").value.trim(),kind:isOpen?"open":"add"}),isOpen?"Cash in hand saved":"Money added")};
   });
 }
 function renderStock(){
@@ -360,16 +369,15 @@ function renderStock(){
       <button class="qa" data-sk="return">${icon.back}Return from marketer</button>
     </div>
     <div class="card">
+      <span class="small muted">Cash in your hand for restocking</span>
       <div class="money-big" style="color:${money<0?"var(--bad)":"inherit"}">${cedi(money)}</div>
-      <span class="small muted">stock money you have to restock with</span>
-      <ul class="list" style="margin-top:10px">
-        ${row("Money put into stock",cedi(stockFunds()),"money you added")}
-        ${row("Sales of stock","+ "+cedi(stockSoldAll()),"comes back into this money")}
-        ${row("Stock bought","− "+cedi(stockBoughtAll()),"restocks come out of this money")}
-        ${row("Cost of stock on hand",cedi(onHand),"what the items still in stock cost you",{strong:true})}
-      </ul>
-      ${money<=0.001&&onHand===0&&stockBoughtAll()>0?`<p class="small" style="color:var(--warn)">Stock has run out and the money is used up. Tap <b>Add money</b> to put more in, then <b>Restock</b>.</p>`:""}
-      <div class="grid2"><button class="btn-primary" id="sfRestock">Restock</button><button id="sfAdd">Add money</button></div>
+      <p class="small muted" style="margin:6px 0 12px">Sales add to this. Restocks take from it. Keep it equal to the cash you actually have.${onHand?` Stock on hand is worth ${cedi(onHand)} at cost.`:""}</p>
+      ${!fundOpen()?`<p class="small" style="color:var(--warn)">Tap <b>Set cash in hand</b> and type what you have now. That is the starting point.</p>`:""}
+      <div class="fab-row" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+        <button class="qa" id="sfRestock">${icon.box}Restock</button>
+        <button class="qa" id="sfAdd">${icon.cash}Add money</button>
+        <button class="qa" id="sfSet">${icon.person}Set cash in hand</button>
+      </div>
     </div>
     <button class="btn-primary btn-block" id="stAddProd" style="margin-bottom:14px">+ Add product</button>
     <div class="wide">
@@ -391,7 +399,8 @@ function renderStock(){
   r.querySelectorAll("[data-sk]").forEach(b=>b.onclick=()=>stockSheet(b.dataset.sk));
   $("stAddProd").onclick=()=>productForm(null);
   $("sfRestock").onclick=()=>stockSheet("in");
-  $("sfAdd").onclick=()=>fundSheet();
+  $("sfAdd").onclick=()=>fundSheet("add");
+  $("sfSet").onclick=()=>fundSheet("open");
   r.querySelectorAll("[data-open-m]").forEach(b=>b.onclick=()=>marketerPage(b.dataset.openM));
   r.querySelectorAll("[data-prod-edit]").forEach(b=>b.onclick=()=>productForm(P(b.dataset.prodEdit)));
   r.querySelectorAll("[data-count]").forEach(b=>b.onclick=()=>countSheet(P(b.dataset.count)));
