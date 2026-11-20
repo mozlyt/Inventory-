@@ -165,13 +165,12 @@ function windowState(d){
   o.moves.filter(m=>m.marketer_id).forEach(m=>hit(m.marketer_id,m.product_id,h=>{if(m.kind==="out")h.gave+=Number(m.qty);if(m.kind==="return")h.back+=Number(m.qty)}));
   o.sales.filter(s=>s.marketer_id).forEach(s=>hit(s.marketer_id,s.product_id,h=>{h.sold+=Number(s.qty)}));
   o.holdings=Object.values(H);
-  const expensesTotal=sum(o.expenses,e=>e.amount);
   const sv=a=>sum(a,s=>Number(s.qty)*Number(s.price));
   o.money=(d.marketers||[]).map(m=>{const ss=o.sales.filter(s=>s.marketer_id===m.id);
     return{marketer_id:m.id,sold_value:sv(ss.filter(s=>s.method!=="credit")),credit_value:sv(ss.filter(s=>s.method==="credit")),all_sales:sv(ss),
       profit:sum(ss,s=>Number(s.qty)*(Number(s.price)-(Number(s.cost)||Number(products.find(p=>p.id===s.product_id)?.cost)||0))),
       units_given:sum(o.moves.filter(x=>x.marketer_id===m.id&&x.kind==="out"),x=>x.qty),
-      paid:sum(o.payments.filter(p=>p.marketer_id===m.id),p=>p.amount),saved:sum(o.savings.filter(v=>v.marketer_id===m.id),v=>v.amount),expenses:expensesTotal}});
+      paid:sum(o.payments.filter(p=>p.marketer_id===m.id),p=>p.amount),saved:sum(o.savings.filter(v=>v.marketer_id===m.id),v=>v.amount),expenses:sum(o.expenses.filter(x=>x.seller_id===m.id),x=>x.amount)}});
   return o;
 }
 async function load(){
@@ -181,6 +180,7 @@ async function load(){
     try{
       const d=await api("/rpc/get_state",{method:"POST",body:{months:months()}});
       if(!d||d.owner!==true){$("lockedEmail").textContent=me?.email||"this account";showGate("locked");return}
+      if(d.settings?.record_start) RECORD_START=String(d.settings.record_start).slice(0,10);
       S=windowState(d); await loadMassage(); banner(""); showGate("app"); render();
     }catch(e){
       if(e?.status===401){showGate("login");return}
@@ -360,25 +360,72 @@ function confirmBtn(btn,ask,fn){let armed=false;btn.onclick=()=>{if(!armed){arme
    Sales received add to it, restocks take from it. Anything from before the starting point is not counted. */
 const fundOpen=()=>(S.stockFunds||[]).filter(x=>x.kind==="open").sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))[0]||null;
 const afterOpen=(x,o)=>!o||String(x.created_at)>String(o.created_at);
-function stockMoney(){
-  const o=fundOpen();
+/* Cash position: the business money actually received and still held, split into two identifiable parts.
+   Stock money  = stock capital + cash for stock collected (handovers, owner's own cash sales, pay-later sales paid) − cost of stock bought.
+   General money = general capital + massage money in − general (business) expenses + savings held for sellers.
+   Seller expenses are paid from what a seller collects, so they are not taken from business cash again.
+   A starting figure set with "Set cash in hand" is the base of the stock money; only movements after it count. */
+function cashPosition(){
+  const o=fundOpen(), after=x=>afterOpen(x,o), sumOf=(a,f)=>a.reduce((t,x)=>t+Number(f(x)||0),0);
   const base=o?Number(o.amount):0;
-  const added=(S.stockFunds||[]).filter(x=>x.kind!=="open"&&afterOpen(x,o)).reduce((a,x)=>a+Number(x.amount),0);
-  const sold=S.sales.filter(s=>(s.method!=="credit"||s.paid_at)&&afterOpen(s,o)).reduce((a,s)=>a+Number(s.qty)*Number(s.price),0);
-  const spent=S.moves.filter(m=>m.kind==="in"&&afterOpen(m,o)).reduce((a,m)=>a+Number(m.qty)*Number(m.unit_cost||0),0);
-  return base+added+sold-spent;
+  const funds=(S.stockFunds||[]).filter(x=>x.kind!=="open"&&after(x));
+  const stockCap=sumOf(funds.filter(x=>x.kind!=="general"),x=>x.amount);
+  const genCap=sumOf(funds.filter(x=>x.kind==="general"),x=>x.amount);
+  const handovers=sumOf((S.payments||[]).filter(after),p=>p.amount);
+  const ownerCash=sumOf((S.sales||[]).filter(s=>!s.marketer_id&&s.method!=="credit"&&after(s)),s=>Number(s.qty)*Number(s.price));
+  const paidCredit=sumOf((S.credit||[]).filter(s=>s.paid_at&&after(s)),s=>Number(s.qty)*Number(s.price));
+  const stockBought=sumOf((S.moves||[]).filter(m=>m.kind==="in"&&after(m)),m=>Number(m.qty)*Number(m.unit_cost||0));
+  const massage=massageIn(RECORD_START,todayISO());
+  const bizExp=sumOf((S.expenses||[]).filter(e=>e.ownership!=="seller"),e=>e.amount);
+  const savingsHeld=sumOf(S.savings||[],v=>v.amount);
+  const stockMoney=base+stockCap+handovers+ownerCash+paidCredit-stockBought;
+  const generalMoney=genCap+massage-bizExp+savingsHeld;
+  return{stockMoney,generalMoney,total:stockMoney+generalMoney,savingsHeld,handovers,stockBought,massage,bizExp};
 }
+const stockMoney=()=>cashPosition().stockMoney;
 const stockOnHandCost=()=>liveProducts().reduce((a,p)=>a+Math.max(0,stockOf(p.id).total)*Number(p.cost||0),0);
 function fundSheet(mode){ // "open" = type what is in your hand now; "add" = you put more money in
   const isOpen=mode==="open";
   openSheet(isOpen?"Cash in your hand":"Add money for stock",`
     <p class="muted">${isOpen?"Type exactly the cash you have in your hand for restocking now. From here, sales add to it and restocks take from it. Older money is not counted.":"Money you put in from your own pocket. Sales add to the cash on their own."}</p>
     <label class="f">${isOpen?"Cash in your hand now (GH₵)":"How much you put in (GH₵)"}<input id="fdA" type="number" min="0" step="0.5" inputmode="decimal" placeholder="e.g. 900"></label>
+    ${isOpen?"":`<label class="f">Money for<select id="fdK"><option value="add">Stock</option><option value="general">General business</option></select></label>`}
     <label class="f">Note (optional)<input id="fdN" placeholder="${isOpen?"e.g. starting point":"e.g. from my own money"}"></label>
     <button class="btn-primary btn-block" id="fdBtn">Save</button>`,()=>{
     $("fdBtn").onclick=()=>{const v=$("fdA").value,a=Number(v);
       if(v===""||a<0||(!isOpen&&a===0)){toast("Enter how much.",true);return}
-      run($("fdBtn"),"save the money",()=>ins("stock_funds",{day,amount:a,note:$("fdN").value.trim(),kind:isOpen?"open":"add"}),isOpen?"Cash in hand saved":"Money added")};
+      run($("fdBtn"),"save the money",()=>ins("stock_funds",{day,amount:a,note:$("fdN").value.trim(),kind:isOpen?"open":($("fdK")?.value||"add")}),isOpen?"Cash in hand saved":"Money added")};
+  });
+}
+/* Dated physical stock count. Records what is counted, shows the difference from the system, and keeps the history.
+   A difference is posted as a count adjustment with its reason, so nothing is overwritten. */
+function countSheet(){
+  const ps=liveProducts();
+  const sys=pid=>stockOf(pid).total;
+  openSheet("Count stock",`
+    <p class="muted">Count what is physically here today. A difference from the recorded stock needs a reason, and it stays in the history.</p>
+    <div class="stack">${ps.map(p=>`<div class="card" style="padding:12px;gap:8px">
+      <div class="row between"><b>${esc(p.name)}</b><span class="small muted">recorded ${sys(p.id)}</span></div>
+      <div class="row"><input data-ct="${p.id}" type="number" min="0" step="1" inputmode="numeric" placeholder="counted" style="flex:1 1 120px"><span class="small" data-df="${p.id}"></span></div>
+      <input data-cr="${p.id}" placeholder="Reason for the difference" hidden></div>`).join("")}</div>
+    <button class="btn-primary btn-block" id="ctBtn" style="margin-top:12px">Save count</button>`,()=>{
+    const upd=()=>ps.forEach(p=>{const v=document.querySelector(`[data-ct="${p.id}"]`).value;const d=v===""?null:Number(v)-sys(p.id);
+      document.querySelector(`[data-df="${p.id}"]`).textContent=d==null?"":d===0?"matches":`difference ${d>0?"+":""}${d}`;
+      document.querySelector(`[data-cr="${p.id}"]`).hidden=!(d)});
+    document.querySelectorAll("[data-ct]").forEach(x=>x.oninput=upd);upd();
+    $("ctBtn").onclick=()=>{
+      const rows=[];
+      for(const p of ps){const v=document.querySelector(`[data-ct="${p.id}"]`).value;if(v==="")continue;
+        const c=Number(v),s=sys(p.id),d=c-s,reason=document.querySelector(`[data-cr="${p.id}"]`).value.trim();
+        if(d!==0&&!reason){toast(`Give a reason for the difference on ${p.name}.`,true);return}
+        rows.push({p,c,s,d,reason})}
+      if(!rows.length){toast("Enter at least one count.",true);return}
+      run($("ctBtn"),"save the count",async()=>{
+        for(const r of rows){
+          if(r.d!==0) await ins("stock_moves",{day,product_id:r.p.id,kind:"adjust",marketer_id:null,qty:r.d,unit_cost:null,note:`Count: ${r.reason}`});
+          await ins("stock_counts",{day,product_id:r.p.id,counted:r.c,system_qty:r.s,difference:r.d,reason:r.reason});
+        }},"Count saved");
+    };
   });
 }
 function renderStock(){
@@ -404,6 +451,7 @@ function renderStock(){
       </div>
     </div>
     <button class="btn-primary btn-block" id="stAddProd" style="margin-bottom:14px">+ Add product</button>
+    <button class="btn-block" id="stCount" style="margin:0 0 14px">Count stock</button>
     <div class="wide">
       ${ps.map(p=>{const s=stockOf(p.id);const low=s.tracked&&s.total<=Number(p.low_stock||0);return `
       <div class="card">
@@ -422,6 +470,7 @@ function renderStock(){
     </div>`;
   r.querySelectorAll("[data-sk]").forEach(b=>b.onclick=()=>stockSheet(b.dataset.sk));
   $("stAddProd").onclick=()=>productForm(null);
+  $("stCount").onclick=()=>countSheet();
   $("sfRestock").onclick=()=>stockSheet("in");
   $("sfAdd").onclick=()=>fundSheet("add");
   $("sfSet").onclick=()=>fundSheet("open");
@@ -673,6 +722,8 @@ const EXPENSE_CATS=["Transport","Shipping","Rent","Airtime & data","Food","Marke
 const DEFAULT_DAILY=[{label:"Transport: Adjeman → Amasaman",cat:"Transport",amount:10},{label:"Transport: Amasaman → Seku",cat:"Transport",amount:10},{label:"Transport back home",cat:"Transport",amount:20},{label:"Extra fare (coming late)",cat:"Transport",amount:0},{label:"Food when out",cat:"Food",amount:50},{label:"Food at night",cat:"Food",amount:20}];
 const usualDaily=()=>{const d=S.settings?.daily_expenses;return Array.isArray(d)&&d.length?d:DEFAULT_DAILY};
 const expensesOn=d=>(S.expenses||[]).filter(e=>e.day===d);
+/* Options for whose expense it is: the business itself, or one seller. */
+const sellerOpts=sel=>`<option value="business" ${sel==="business"?"selected":""}>Business (not any seller)</option>`+S.marketers.filter(m=>!m.removed_at).map(m=>`<option value="${m.id}" ${m.id===sel?"selected":""}>${esc(m.name)}</option>`).join("");
 function dailyExpenseSheet(){
   const done=expensesOn(day), doneTotal=done.reduce((a,e)=>a+Number(e.amount),0);
   let lines=done.length?[]:usualDaily().map(l=>({...l,amount:Number(l.amount)||0}));  // already recorded: start empty, only extras
@@ -689,6 +740,7 @@ function dailyExpenseSheet(){
   };
   openSheet("Daily expenses",`
     ${done.length?`<div class="alert info"><span>✓</span><span>Already saved for ${when}: <b>${cedi(doneTotal)}</b> (${done.map(e=>esc(e.note||e.category)).join(", ")}). Add only the extras below.</span></div>`:`<p class="muted">Your usual day is filled in. Change any amount that was different ${when}, add anything extra, then save.</p>`}
+    ${done.length?"":`<label class="f">Whose expenses are these?<select id="deWho">${sellerOpts(S.marketers.find(m=>!m.removed_at)?.id)}</select></label>`}
     <ul class="list" id="deLines"></ul>
     <div class="card" style="padding:12px;gap:8px;background:var(--raised)">
       <span style="font-weight:700;font-size:.9rem">Add another expense</span>
@@ -702,7 +754,8 @@ function dailyExpenseSheet(){
     let newCat="Other"; wireChips(root,"decat",v=>newCat=v); draw();
     $("deAdd").onclick=()=>{const l=$("deNewL").value.trim()||newCat,a=Number($("deNewA").value)||0;lines.push({label:l,cat:newCat,amount:a});$("deNewL").value="";$("deNewA").value="";draw()};
     $("deSave").onclick=()=>{
-      const rows=lines.filter(l=>Number(l.amount)>0).map(l=>({day,category:l.cat,amount:Number(l.amount),note:l.label.trim()||l.cat}));
+      const who=$("deWho")?.value||"business";
+      const rows=lines.filter(l=>Number(l.amount)>0).map(l=>({day,category:l.cat,amount:Number(l.amount),note:l.label.trim()||l.cat,ownership:who==="business"?"business":"seller",seller_id:who==="business"?null:who}));
       const keep=!!$("deUsual")?.checked;
       if(!rows.length&&!keep){toast("Enter at least one amount.",true);return}
       run($("deSave"),"save the expenses",async()=>{
@@ -719,12 +772,14 @@ function expenseSheet(e){
     <p class="muted">Money spent running the business: transport, shipping, rent, airtime and so on. Buying stock is recorded with Stock in instead.</p>
     <label class="f">Amount (GH₵)<input id="exAmt" type="number" min="0" step="0.5" inputmode="decimal" value="${e?Number(e.amount):""}"></label>
     <div><span style="font-weight:700;font-size:.9rem">What for?</span><div class="chips" style="margin-top:6px">${EXPENSE_CATS.map(c=>`<button type="button" class="chip" data-chip="excat" data-v="${c}" aria-pressed="${c===cat}">${c}</button>`).join("")}</div></div>
+    <label class="f">Whose expense is it?<select id="exWho">${sellerOpts(e?.seller_id||"business")}</select></label>
     <label class="f">Note (optional)<input id="exNote" value="${esc(e?.note)}" placeholder="e.g. trotro to Kaneshie market"></label>
     <button class="btn-primary btn-block" id="exBtn">${e?"Save changes":"Save expense"}</button>
     ${e?`<button class="btn-danger btn-block" id="exDel">Delete this expense</button>`:`<p class="small muted">Saves on ${day===todayISO()?"today's date":fmtDay(day,{day:"numeric",month:"long"})}.</p>`}`,root=>{
     wireChips(root,"excat",v=>cat=v);
     $("exBtn").onclick=()=>{const a=Number($("exAmt").value);if(!(a>0)){toast("Enter the amount.",true);return}
-      const row={amount:a,category:cat,note:$("exNote").value.trim()};
+      const who=$("exWho").value;
+      const row={amount:a,category:cat,note:$("exNote").value.trim(),ownership:who==="business"?"business":"seller",seller_id:who==="business"?null:who};
       if(e) run($("exBtn"),"save the expense",()=>upd("expenses",e.id,row),"Expense updated");
       else run($("exBtn"),"save the expense",()=>ins("expenses",{day,...row}),"Expense saved")};
     if(e) confirmBtn($("exDel"),"Tap again to delete",()=>run($("exDel"),"delete the expense",()=>del("expenses",e.id),"Expense deleted"));
@@ -764,7 +819,7 @@ const SPLIT=[["Reinvestment",0.4],["Personal income",0.3],["Business reserve",0.
 const splitRows=F=>F.split.map(s=>row(s.n,cedi(s.v),s.sub)).join("");
 
 /* Record lists for the Reports tab. The record starts yesterday; nothing before RECORD_START is shown. */
-const RECORD_START="2026-11-19";
+let RECORD_START="2026-11-19";
 const dayRange=(f,t)=>{const out=[];for(let d=f;d<=t&&out.length<400;d=addDays(d,1))out.push(d);return out};
 const weekStartOf=d=>{const x=new Date(d+"T12:00");return addDays(d,-((x.getDay()+6)%7))};
 const dayTitle=d=>{const today=todayISO();return d===today?"Today":d===addDays(today,-1)?"Yesterday":fmtDay(d,{weekday:"long",day:"numeric",month:"long",year:"numeric"})};
@@ -838,6 +893,7 @@ function renderMoney(){
     const missing=liveProducts().filter(p=>!Number(p.cost));
     body=`
       <div class="grid2 kpis">
+        <div class="tile accent"><b>${cedi(cashPosition().total)}</b><span>cash in hand · ${cedi(cashPosition().stockMoney)} for stock</span></div>
         <div class="tile"><b>${cedi((()=>{const A=moneyFigures(RECORD_START,todayISO());return A.revenue+A.massageIn})())}</b><span>revenue · all sellers since 19 Nov</span></div>
         <div class="tile"><b>${cedi(F.gross)}</b><span>gross profit</span></div>
         <div class="tile"><b>${cedi(F.savIn)}</b><span>total savings</span></div>
