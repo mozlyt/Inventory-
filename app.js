@@ -105,7 +105,6 @@ function period(kind){
   const m=day.slice(0,7);const [y,mm]=m.split("-").map(Number);const last=new Date(y,mm,0).getDate();return [m+"-01",`${m}-${String(last).padStart(2,"0")}`];
 }
 
-function dayList(f,t){const out=[];let d=new Date(f+"T00:00:00Z");const end=new Date(t+"T00:00:00Z");while(d<=end&&out.length<62){out.push(d.toISOString().slice(0,10));d.setUTCDate(d.getUTCDate()+1)}return out}
 
 /* =================== UI HELPERS =================== */
 let toastT;
@@ -333,8 +332,25 @@ function saleEdit(s){
 function confirmBtn(btn,ask,fn){let armed=false;btn.onclick=()=>{if(!armed){armed=true;const t=btn.textContent;btn.textContent=ask;setTimeout(()=>{armed=false;btn.textContent=t},3500);return}fn()}}
 
 /* =================== STOCK =================== */
+/* Stock money: money put into stock + sales of stock − cost of stock bought. A restock takes from it. */
+const stockFunds=()=>(S.stockFunds||[]).reduce((a,x)=>a+Number(x.amount),0);
+const stockBoughtAll=()=>S.moves.filter(m=>m.kind==="in").reduce((a,m)=>a+Number(m.qty)*Number(m.unit_cost||0),0);
+const stockSoldAll=()=>sumVal(S.sales);
+const stockMoney=()=>stockFunds()+stockSoldAll()-stockBoughtAll();
+const stockOnHandCost=()=>liveProducts().reduce((a,p)=>a+Math.max(0,stockOf(p.id).total)*Number(p.cost||0),0);
+function fundSheet(){
+  openSheet("Add money for stock",`
+    <p class="muted">Money you put into stock. Sales add to it on their own, and each restock takes from it. Add money only when you put more in.</p>
+    <label class="f">How much (GH₵)<input id="fdA" type="number" min="0" step="0.5" inputmode="decimal" placeholder="e.g. 500"></label>
+    <label class="f">Note (optional)<input id="fdN" placeholder="e.g. put in from savings"></label>
+    <button class="btn-primary btn-block" id="fdBtn">Save</button>`,()=>{
+    $("fdBtn").onclick=()=>{const a=Number($("fdA").value);if(!(a>0)){toast("Enter how much.",true);return}
+      run($("fdBtn"),"save the money",()=>ins("stock_funds",{day,amount:a,note:$("fdN").value.trim()}),"Money added to stock")};
+  });
+}
 function renderStock(){
   const ps=liveProducts();
+  const money=stockMoney(), onHand=stockOnHandCost();
   const holders=S.marketers.map(m=>({m,h:holdingsOf(m.id)})).filter(x=>x.h.length);
   const r=$("scr-stock");
   r.innerHTML=`
@@ -342,6 +358,18 @@ function renderStock(){
       <button class="qa" data-sk="in">${icon.box}Stock in</button>
       <button class="qa" data-sk="out">${icon.give}Give to marketer</button>
       <button class="qa" data-sk="return">${icon.back}Return from marketer</button>
+    </div>
+    <div class="card">
+      <div class="money-big" style="color:${money<0?"var(--bad)":"inherit"}">${cedi(money)}</div>
+      <span class="small muted">stock money you have to restock with</span>
+      <ul class="list" style="margin-top:10px">
+        ${row("Money put into stock",cedi(stockFunds()),"money you added")}
+        ${row("Sales of stock","+ "+cedi(stockSoldAll()),"comes back into this money")}
+        ${row("Stock bought","− "+cedi(stockBoughtAll()),"restocks come out of this money")}
+        ${row("Cost of stock on hand",cedi(onHand),"what the items still in stock cost you",{strong:true})}
+      </ul>
+      ${money<=0.001&&onHand===0&&stockBoughtAll()>0?`<p class="small" style="color:var(--warn)">Stock has run out and the money is used up. Tap <b>Add money</b> to put more in, then <b>Restock</b>.</p>`:""}
+      <div class="grid2"><button class="btn-primary" id="sfRestock">Restock</button><button id="sfAdd">Add money</button></div>
     </div>
     <button class="btn-primary btn-block" id="stAddProd" style="margin-bottom:14px">+ Add product</button>
     <div class="wide">
@@ -362,6 +390,8 @@ function renderStock(){
     </div>`;
   r.querySelectorAll("[data-sk]").forEach(b=>b.onclick=()=>stockSheet(b.dataset.sk));
   $("stAddProd").onclick=()=>productForm(null);
+  $("sfRestock").onclick=()=>stockSheet("in");
+  $("sfAdd").onclick=()=>fundSheet();
   r.querySelectorAll("[data-open-m]").forEach(b=>b.onclick=()=>marketerPage(b.dataset.openM));
   r.querySelectorAll("[data-prod-edit]").forEach(b=>b.onclick=()=>productForm(P(b.dataset.prodEdit)));
   r.querySelectorAll("[data-count]").forEach(b=>b.onclick=()=>countSheet(P(b.dataset.count)));
@@ -384,12 +414,13 @@ function stockSheet(kind,mid){
     <label class="f">Note (optional)<input id="ssNote" placeholder="${kind==="in"?"e.g. China order, November":""}"></label>
     <button class="btn-primary btn-block" id="ssBtn">Save</button>`,root=>{
     const hint=()=>{const s=stockOf(pid);const m=root.querySelector("#ssM")?.value;
-      $("ssHint").textContent=kind==="out"?`In your store now: ${s.tracked?s.store:"not set up"}.`:kind==="return"&&m?`${mName(m)} is holding ${Math.max(0,holding(m,pid))}.`:s.tracked?`In stock now: ${Math.max(0,s.total)}.`:""};
+      $("ssHint").textContent=kind==="in"?`Stock money you have: ${cedi(stockMoney())}. A restock takes its cost from this.`:kind==="out"?`In your store now: ${s.tracked?s.store:"not set up"}.`:kind==="return"&&m?`${mName(m)} is holding ${Math.max(0,holding(m,pid))}.`:s.tracked?`In stock now: ${Math.max(0,s.total)}.`:""};
     wireChips(root,"ssp",v=>{pid=v;hint()}); stepper(root,"ssQ",1); root.querySelector("#ssM")?.addEventListener("change",hint); hint();
     $("ssBtn").onclick=()=>{
       const q=Number($("ssQn").value)||Number($("ssQ").value);
       if(!(q>0)){toast("Enter how many.",true);return}
       const cost=kind==="in"?Number($("ssCost").value)||null:null;
+      if(kind==="in"&&cost&&Math.round(q)*cost>stockMoney()+0.001){toast(`Not enough stock money: ${cedi(stockMoney())}. This restock costs ${cedi(Math.round(q)*cost)}. Add money first.`,true);return}
       const row={day,product_id:pid,kind,marketer_id:(kind==="out"||kind==="return")?$("ssM").value:null,qty:Math.round(q),unit_cost:cost,note:$("ssNote").value.trim()};
       run($("ssBtn"),"save the stock",async()=>{await ins("stock_moves",row);if(cost&&cost!==Number(P(pid).cost)){await upd("products",pid,{cost});await api(`/sales?product_id=eq.${enc(pid)}&cost=eq.0`,{method:"PATCH",prefer:"return=minimal",body:{cost}})}},{in:"Stock added",out:"Stock given out",return:"Return saved"}[kind]);
     };
@@ -839,13 +870,9 @@ function renderMoney(){
         ${agg.length?`<tfoot><tr><th>Total</th><th class="r">${sumQty(rows)}</th><th></th><th class="r">${cedi(F.revenue)}</th><th class="r">${cedi(F.gross)}</th><th class="r">${cedi(F.received)}</th><th class="r">${cedi(F.mpay)}</th></tr></tfoot>`:""}</table></div></div>
       <div class="card full"><h2>By product</h2><div class="tbl"><table><thead><tr><th>Product</th><th class="r">Sold</th><th class="r">Sales</th><th class="r">Cost</th><th class="r">Profit</th><th class="r">Margin</th></tr></thead><tbody>${pk.length?pk.map(k=>`<tr><td>${esc(k)}</td><td class="r">${byP[k].u}</td><td class="r">${cedi(byP[k].v)}</td><td class="r">${cedi(byP[k].v-byP[k].pr)}</td><td class="r">${cedi(byP[k].pr)}</td><td class="r">${byP[k].v?Math.round(byP[k].pr/byP[k].v*100):0}%</td></tr>`).join(""):`<tr><td colspan="6" class="empty">Nothing sold.</td></tr>`}</tbody>
         ${pk.length?`<tfoot><tr><th>Total</th><th class="r">${sumQty(rows)}</th><th class="r">${cedi(F.revenue)}</th><th class="r">${cedi(F.cost)}</th><th class="r">${cedi(F.gross)}</th><th class="r">${F.revenue?Math.round(F.gross/F.revenue*100):0}%</th></tr></tfoot>`:""}</table></div></div>
-      <div class="card full"><h2>Daily record</h2><p class="small muted" style="margin:0 0 8px">One line for each day with activity in this period, newest first.</p>
-        ${(()=>{const days=dayList(f,t).reverse().map(d=>({d,F:moneyFigures(d,d)})).filter(x=>x.F.revenue||x.F.massageIn||x.F.expenses||x.F.received||x.F.savIn||x.F.savOut||x.F.stockBought);
-          if(!days.length) return `<p class="empty">Nothing recorded in this period.</p>`;
-          const tot=days.reduce((a,x)=>{a.rev+=x.F.revenue;a.mIn+=x.F.massageIn;a.gross+=x.F.gross;a.exp+=x.F.expenses;a.net+=x.F.net;a.rec+=x.F.received;return a},{rev:0,mIn:0,gross:0,exp:0,net:0,rec:0});
-          return `<div class="tbl"><table><thead><tr><th>Day</th><th class="r">Sales</th><th class="r">Massage in</th><th class="r">Gross profit</th><th class="r">Expenses</th><th class="r">Profit after expenses</th><th class="r">Handed in</th></tr></thead>
-            <tbody>${days.map(({d,F})=>`<tr><td>${fmtDay(d,{weekday:"short",day:"numeric",month:"short"})}</td><td class="r">${cedi(F.revenue)}</td><td class="r">${cedi(F.massageIn)}</td><td class="r">${cedi(F.gross)}</td><td class="r">${cedi(F.expenses)}</td><td class="r" style="color:${F.net>=0?"var(--good)":"var(--bad)"}"><b>${cedi(F.net)}</b></td><td class="r">${cedi(F.received)}</td></tr>`).join("")}</tbody>
-            <tfoot><tr><th>Total</th><th class="r">${cedi(tot.rev)}</th><th class="r">${cedi(tot.mIn)}</th><th class="r">${cedi(tot.gross)}</th><th class="r">${cedi(tot.exp)}</th><th class="r">${cedi(tot.net)}</th><th class="r">${cedi(tot.rec)}</th></tr></tfoot></table></div>`})()}
+      <div class="card full"><h2>Today's record</h2><p class="small muted" style="margin:0 0 8px">${fmtDay(todayISO(),{weekday:"long",day:"numeric",month:"long"})}. Each day is kept by its date; this card shows today only.</p>
+        ${(()=>{const T=moneyFigures(todayISO(),todayISO());
+          return `<ul class="list">${row("Sales",cedi(T.revenue),sumQty(T.sales)+" items")}${row("Massage money in","+ "+cedi(T.massageIn))}${row("Cost of items sold","− "+cedi(T.cost))}${row("Massage kit used","− "+cedi(T.massageKit))}${row("Gross profit",cedi(T.gross),"sales − cost",{strong:true})}${row("Expenses","− "+cedi(T.expenses))}${row("Profit after expenses",cedi(T.net),"gross profit − expenses",{strong:true,color:T.net>=0?"var(--good)":"var(--bad)"})}${row("Handed in by marketers",cedi(T.received))}${row("Stock bought","− "+cedi(T.stockBought))}</ul>`})()}
       </div>
       </div>`;
   }
@@ -962,7 +989,8 @@ async function loadMassage(){
     api("/kit_moves?select=*&order=created_at.desc"),api("/therapists?select=*&order=no.asc"),
     api("/bookings?select=*&order=created_at.desc"),api("/deliveries?select=*&order=created_at.desc"),
     api("/booking_payments?select=*&order=created_at.desc"),api("/therapist_pay?select=*&order=created_at.desc")]);
-  Object.assign(S,{services:svc||[],kitItems:kit||[],serviceKit:skit||[],kitMoves:kmv||[],therapists:th||[],bookings:bk||[],deliveries:dl||[],bookingPayments:bp||[],therapistPay:tp||[]});
+  const sf=await api("/stock_funds?select=*&order=created_at.desc");
+  Object.assign(S,{services:svc||[],kitItems:kit||[],serviceKit:skit||[],kitMoves:kmv||[],therapists:th||[],bookings:bk||[],deliveries:dl||[],bookingPayments:bp||[],therapistPay:tp||[],stockFunds:sf||[]});
 }
 
 /* ---- sessions screen ---- */
