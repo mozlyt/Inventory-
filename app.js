@@ -781,7 +781,7 @@ function renderMoney(){
         <div class="tile"><b>${cedi(F.gross)}</b><span>gross profit</span></div>
         <div class="tile"><b>${cedi(F.savIn)}</b><span>total savings</span></div>
         <div class="tile accent"><b style="color:${F.net>=0?"var(--good)":"var(--bad)"}">${cedi(F.net)}</b><span>profit after expenses</span></div>
-        <div class="tile"><b>${cedi(F.toCollect)}</b><span>still to collect</span></div>
+        <div class="tile"><b>${cedi(F.customersOwe)}</b><span>still to collect</span></div>
       </div>
       <div class="fab-row" style="grid-template-columns:repeat(3,minmax(0,1fr))">
         <button class="qa" id="ovPay">${icon.cash}Receive money</button>
@@ -791,12 +791,9 @@ function renderMoney(){
       <div class="wide">
         <div class="card"><h2>Where the money is</h2>
           <ul class="list">
-            ${row("Cash with marketers",cedi(F.withMarketers),"collected from customers, not yet handed to you",{strong:true})}
             ${row("Customers owe you",cedi(F.customersOwe),`${unpaidCredit().length} pay-later sale${unpaidCredit().length===1?"":"s"}`,{strong:true})}
-            ${row("Stock not yet sold",F.stockUnits+" items",F.stockUnits?`worth ${cedi(F.stockPrice)} at selling price${F.stockCost?` · cost you ${cedi(F.stockCost)}`:""}`:"")}
-            ${row("Marketers' pay you hold",cedi(F.savingsHeld),"their savings: you pay it out to them")}
           </ul>
-          <p class="small muted">These are separate. Stock is not money until it's sold, and savings belong to your marketers.</p>
+          <p class="small muted">Only money customers still owe you is shown here. Everything else is already in your hands or shared.</p>
         </div>
         <div class="card"><h2>Profit in ${monthName}</h2>
           <ul class="list">
