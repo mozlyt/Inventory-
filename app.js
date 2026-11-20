@@ -803,6 +803,30 @@ function revenueSheet(){
     <h2 style="margin-top:14px">By product</h2>
     ${keys.length?`<ul class="list">${keys.map(k=>row(esc(k),cedi(byP[k].v),byP[k].u+" sold")).join("")}</ul>`:`<p class="empty">No sales in ${label}.</p>`}`);
 }
+/* Add a customer who owes: a pay-later sale with the customer's name and an optional due date. */
+function owingSheet(){
+  const pr=S.products.filter(p=>p.active!==false);
+  const opts=pr.map(p=>`<option value="${p.id}">${esc(p.name)} · ${cedi(p.price)}</option>`).join("");
+  openSheet("Add customer who owes",`
+    <p class="muted">A sale the customer has not paid yet. They stay under Customers who owe until you mark it paid.</p>
+    <label class="f">Customer's name<input id="cuN" placeholder="e.g. Ama Mensah"></label>
+    <label class="f">What they bought<select id="cuP">${opts}</select></label>
+    <label class="f">How many<input id="cuQ" type="number" min="1" step="1" value="1" inputmode="numeric"></label>
+    <label class="f">Price each (GH₵)<input id="cuPr" type="number" min="0" step="0.5" inputmode="decimal"></label>
+    <label class="f">Due date (optional)<input id="cuD" type="date"></label>
+    <label class="f">Note (optional)<input id="cuNo" placeholder="e.g. paying on Friday"></label>
+    <button class="btn-primary btn-block" id="cuBtn">Save customer</button>`,()=>{
+    const fillPrice=()=>{const p=pr.find(x=>x.id===$("cuP").value);$("cuPr").value=p?Number(p.price):""};
+    $("cuP").onchange=fillPrice; fillPrice();
+    $("cuBtn").onclick=()=>{
+      const name=$("cuN").value.trim(), p=pr.find(x=>x.id===$("cuP").value), q=Math.round(Number($("cuQ").value)), price=Number($("cuPr").value);
+      if(!name){toast("Enter the customer's name.",true);return}
+      if(!p||!(q>0)){toast("Enter how many.",true);return}
+      if(!(price>=0)){toast("Enter the price.",true);return}
+      run($("cuBtn"),"save the customer",()=>ins("sales",{day,marketer_id:null,product_id:p.id,product_name:p.name,qty:q,price,cost:Number(p.cost||0),method:"credit",customer:name,due_date:$("cuD").value||null,note:$("cuNo").value.trim()}),`${name} now owes ${cedi(q*price)}`);
+    };
+  });
+}
 function renderMoney(){
   const r=$("scr-money");
   if(!["overview","transactions","people","savings","reports"].includes(moneyTab)) moneyTab="overview";
@@ -820,11 +844,12 @@ function renderMoney(){
         <div class="tile accent"><b style="color:${F.net>=0?"var(--good)":"var(--bad)"}">${cedi(F.net)}</b><span>profit after expenses</span></div>
         <div class="tile"><b>${cedi(F.customersOwe)}</b><span>still to collect</span></div>
       </div>
-      <div class="fab-row" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+      <div class="fab-row" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">
         <button class="qa" id="ovRev">${icon.box}Revenue</button>
         <button class="qa" id="ovPay">${icon.cash}Receive money</button>
         <button class="qa" id="ovExp">${icon.back}Daily expenses</button>
         <button class="qa" id="ovCust">${icon.person}Customers who owe</button>
+        <button class="qa" id="ovOwe">${icon.person}Add customer who owes</button>
       </div>
       <div class="wide">
         <div class="card"><h2>Where the money is</h2>
@@ -954,6 +979,7 @@ function renderMoney(){
   $("ovExp")&&($("ovExp").onclick=()=>dailyExpenseSheet());
   $("ovExp2")&&($("ovExp2").onclick=()=>dailyExpenseSheet());
   $("ovCust")&&($("ovCust").onclick=()=>{moneyTab="people";renderMoney()});
+  $("ovOwe")&&($("ovOwe").onclick=()=>owingSheet());
   $("mnPay")&&($("mnPay").onclick=()=>paymentSheet());
   $("svAdd")&&($("svAdd").onclick=()=>savingsSheet(null,false));
   $("svOut")&&($("svOut").onclick=()=>savingsSheet(null,true));
