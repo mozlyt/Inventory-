@@ -98,7 +98,7 @@ function stockOf(pid){
 }
 const holding=(mid,pid)=>{const h=S.holdings.find(x=>x.marketer_id===mid&&x.product_id===pid);return h?Number(h.gave)-Number(h.back)-Number(h.sold):0};
 const holdingsOf=mid=>S.products.map(p=>({p,n:holding(mid,p.id)})).filter(x=>x.n>0);
-const moneyOf=mid=>{const r=S.money.find(x=>x.marketer_id===mid)||{};const n=k=>Number(r[k]||0);return{owes:n("sold_value")-n("paid"),saved:n("saved"),soldValue:n("sold_value"),paid:n("paid"),credit:n("credit_value"),allSales:n("all_sales"),profit:n("profit"),unitsGiven:n("units_given")}};
+const moneyOf=mid=>{const r=S.money.find(x=>x.marketer_id===mid)||{};const n=k=>Number(r[k]||0);return{owes:n("sold_value")-n("paid")-n("expenses"),saved:n("saved"),soldValue:n("sold_value"),paid:n("paid"),credit:n("credit_value"),allSales:n("all_sales"),profit:n("profit"),unitsGiven:n("units_given")}};
 function period(kind){
   if(kind==="today") return [day,day];
   if(kind==="week"){const d=new Date(day+"T12:00");const wd=(d.getDay()+6)%7;const from=addDays(day,-wd);return [from,addDays(from,6)]}
@@ -150,6 +150,30 @@ const icon={
 
 /* =================== LOAD =================== */
 let loading=null;
+/* The record starts yesterday (RECORD_START). Everything older is hidden from the app, not deleted.
+   Stock, holdings, money owed and the expenses taken from sellers are worked out from what is shown. */
+function windowState(d){
+  const inWin=x=>String(x.day||"")>=RECORD_START;
+  const sum=(a,f)=>a.reduce((t,x)=>t+Number(f(x)||0),0);
+  const o={...d,sales:(d.sales||[]).filter(inWin),payments:(d.payments||[]).filter(inWin),savings:(d.savings||[]).filter(inWin),
+    expenses:(d.expenses||[]).filter(inWin),moves:(d.moves||[]).filter(inWin),credit:(d.credit||[]).filter(inWin)};
+  const products=d.products||[];
+  o.stock=products.map(p=>{const mv=o.moves.filter(m=>m.product_id===p.id),sl=o.sales.filter(s=>s.product_id===p.id);
+    return{product_id:p.id,inn:sum(mv.filter(m=>m.kind==="in"),m=>m.qty),adj:sum(mv.filter(m=>m.kind==="adjust"),m=>m.qty),outt:sum(mv.filter(m=>m.kind==="out"),m=>m.qty),ret:sum(mv.filter(m=>m.kind==="return"),m=>m.qty),sold:sum(sl,s=>s.qty)}});
+  const H={};
+  const hit=(mid,pid,f)=>{const k=mid+"|"+pid;H[k]=H[k]||{marketer_id:mid,product_id:pid,gave:0,back:0,sold:0};f(H[k])};
+  o.moves.filter(m=>m.marketer_id).forEach(m=>hit(m.marketer_id,m.product_id,h=>{if(m.kind==="out")h.gave+=Number(m.qty);if(m.kind==="return")h.back+=Number(m.qty)}));
+  o.sales.filter(s=>s.marketer_id).forEach(s=>hit(s.marketer_id,s.product_id,h=>{h.sold+=Number(s.qty)}));
+  o.holdings=Object.values(H);
+  const expensesTotal=sum(o.expenses,e=>e.amount);
+  const sv=a=>sum(a,s=>Number(s.qty)*Number(s.price));
+  o.money=(d.marketers||[]).map(m=>{const ss=o.sales.filter(s=>s.marketer_id===m.id);
+    return{marketer_id:m.id,sold_value:sv(ss.filter(s=>s.method!=="credit")),credit_value:sv(ss.filter(s=>s.method==="credit")),all_sales:sv(ss),
+      profit:sum(ss,s=>Number(s.qty)*(Number(s.price)-(Number(s.cost)||Number(products.find(p=>p.id===s.product_id)?.cost)||0))),
+      units_given:sum(o.moves.filter(x=>x.marketer_id===m.id&&x.kind==="out"),x=>x.qty),
+      paid:sum(o.payments.filter(p=>p.marketer_id===m.id),p=>p.amount),saved:sum(o.savings.filter(v=>v.marketer_id===m.id),v=>v.amount),expenses:expensesTotal}});
+  return o;
+}
 async function load(){
   if(loading) return loading;
   loading=(async()=>{
@@ -157,7 +181,7 @@ async function load(){
     try{
       const d=await api("/rpc/get_state",{method:"POST",body:{months:months()}});
       if(!d||d.owner!==true){$("lockedEmail").textContent=me?.email||"this account";showGate("locked");return}
-      S=d; await loadMassage(); banner(""); showGate("app"); render();
+      S=windowState(d); await loadMassage(); banner(""); showGate("app"); render();
     }catch(e){
       if(e?.status===401){showGate("login");return}
       if(!S){showGate("boot");$("bootMsg").textContent=explain(e,"load your records")}
@@ -607,7 +631,7 @@ async function loadHistory(mid){
       ...pays.map(p=>({d:p.day,c:p.created_at,t:"Handed money to you",s:(p.method==="momo"?"MoMo":"Cash")+(p.note?" · "+esc(p.note):""),v:"+"+cedi(p.amount),col:"var(--good)"})),
       ...savs.map(v=>({d:v.day,c:v.created_at,t:v.amount<0?"Savings paid out":"Saved with you",s:esc(v.note||""),v:(v.amount<0?"−":"+")+cedi(Math.abs(v.amount)),col:v.amount<0?"var(--warn)":""})),
       ...moves.map(mv=>({d:mv.day,c:mv.created_at,t:mv.kind==="out"?`Received ${esc(P(mv.product_id)?.name||"stock")}`:`Returned ${esc(P(mv.product_id)?.name||"stock")}`,s:esc(mv.note||""),v:(mv.kind==="out"?"→ ":"← ")+mv.qty,col:""}))
-    ].sort((a,b)=>b.d.localeCompare(a.d)||String(b.c).localeCompare(String(a.c))).slice(0,40);
+    ].filter(x=>x.d>=RECORD_START).sort((a,b)=>b.d.localeCompare(a.d)||String(b.c).localeCompare(String(a.c))).slice(0,40);
     const el=$("mpHist"); if(!el) return;
     el.innerHTML=rows.length?`<ul class="list">${rows.map(x=>`<li><div class="item"><span class="grow"><span class="t">${x.t}</span><span class="s">${fmtDay(x.d)}${x.s?" · "+x.s:""}</span></span><span class="r" style="${x.col?"color:"+x.col:""}">${x.v}</span></div></li>`).join("")}</ul>`:`<p class="empty">Nothing recorded yet.</p>`;
   }catch(e){const el=$("mpHist");if(el)el.innerHTML=`<p class="empty">${esc(explain(e,"load the history"))}</p>`}
@@ -1022,7 +1046,7 @@ async function loadMassage(){
     api("/bookings?select=*&order=created_at.desc"),api("/deliveries?select=*&order=created_at.desc"),
     api("/booking_payments?select=*&order=created_at.desc"),api("/therapist_pay?select=*&order=created_at.desc")]);
   const sf=await api("/stock_funds?select=*&order=created_at.desc");
-  Object.assign(S,{services:svc||[],kitItems:kit||[],serviceKit:skit||[],kitMoves:kmv||[],therapists:th||[],bookings:bk||[],deliveries:dl||[],bookingPayments:bp||[],therapistPay:tp||[],stockFunds:sf||[]});
+  Object.assign(S,{services:svc||[],kitItems:kit||[],serviceKit:skit||[],kitMoves:kmv||[],therapists:th||[],bookings:bk||[],deliveries:dl||[],bookingPayments:bp||[],therapistPay:tp||[],stockFunds:(sf||[]).filter(x=>String(x.day||"")>=RECORD_START)});
 }
 
 /* ---- sessions screen ---- */
