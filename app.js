@@ -791,6 +791,18 @@ function recordCards(mode){
   const days=dayRange(f,t).reverse();
   return days.map(d=>recordCard(dayTitle(d),"",d,d)).join("")||`<p class="empty">No days recorded yet.</p>`;
 }
+/* Revenue: money from sales only, before cost. Profit and cash flow are shown on their own cards. */
+function revenueSheet(){
+  const [f,t]=period("month"), F=moneyFigures(f,t), rows=F.sales;
+  const label=new Date(f+"T12:00").toLocaleDateString("en-GB",{month:"long",year:"numeric"});
+  const byP={};rows.forEach(s=>{const k=pName(s);byP[k]=byP[k]||{u:0,v:0};byP[k].u+=Number(s.qty);byP[k].v+=Number(s.qty)*Number(s.price)});
+  const keys=Object.keys(byP).sort((a,b)=>byP[b].v-byP[a].v);
+  openSheet("Revenue · "+label,`
+    <p class="muted">Money from sales before cost. Profit is on the Profit card, and cash is in Where the money is.</p>
+    <ul class="list">${row("Revenue",cedi(F.revenue),sumQty(rows)+" items sold",{strong:true})}</ul>
+    <h2 style="margin-top:14px">By product</h2>
+    ${keys.length?`<ul class="list">${keys.map(k=>row(esc(k),cedi(byP[k].v),byP[k].u+" sold")).join("")}</ul>`:`<p class="empty">No sales in ${label}.</p>`}`);
+}
 function renderMoney(){
   const r=$("scr-money");
   if(!["overview","transactions","people","savings","reports"].includes(moneyTab)) moneyTab="overview";
@@ -807,7 +819,8 @@ function renderMoney(){
         <div class="tile accent"><b style="color:${F.net>=0?"var(--good)":"var(--bad)"}">${cedi(F.net)}</b><span>profit after expenses</span></div>
         <div class="tile"><b>${cedi(F.customersOwe)}</b><span>still to collect</span></div>
       </div>
-      <div class="fab-row" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+      <div class="fab-row" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+        <button class="qa" id="ovRev">${icon.box}Revenue</button>
         <button class="qa" id="ovPay">${icon.cash}Receive money</button>
         <button class="qa" id="ovExp">${icon.back}Daily expenses</button>
         <button class="qa" id="ovCust">${icon.person}Customers who owe</button>
@@ -935,6 +948,7 @@ function renderMoney(){
   r.innerHTML=`<div class="seg">${tabs.map(([k,l])=>`<button data-seg="mt" data-v="${k}" aria-pressed="${moneyTab===k}">${l}</button>`).join("")}</div>${body}`;
   wireSeg(r,"mt",v=>{moneyTab=v;renderMoney()});
   wireSeg(r,"rp",v=>{reportPeriod=v;renderMoney()});
+  $("ovRev")&&($("ovRev").onclick=()=>revenueSheet());
   $("ovPay")&&($("ovPay").onclick=()=>paymentSheet());
   $("ovExp")&&($("ovExp").onclick=()=>dailyExpenseSheet());
   $("ovExp2")&&($("ovExp2").onclick=()=>dailyExpenseSheet());
