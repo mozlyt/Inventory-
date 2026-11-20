@@ -793,13 +793,13 @@ function recordCards(mode){
 }
 /* Revenue: money from sales only, before cost. Profit and cash flow are shown on their own cards. */
 function revenueSheet(){
-  const [f,t]=period("month"), F=moneyFigures(f,t), rows=F.sales;
-  const label=new Date(f+"T12:00").toLocaleDateString("en-GB",{month:"long",year:"numeric"});
+  const f=RECORD_START,t=todayISO(), F=moneyFigures(f,t), rows=F.sales;
+  const label="since "+fmtDay(f,{day:"numeric",month:"long",year:"numeric"});
   const byP={};rows.forEach(s=>{const k=pName(s);byP[k]=byP[k]||{u:0,v:0};byP[k].u+=Number(s.qty);byP[k].v+=Number(s.qty)*Number(s.price)});
   const keys=Object.keys(byP).sort((a,b)=>byP[b].v-byP[a].v);
   openSheet("Revenue · "+label,`
     <p class="muted">Money from sales before cost. Profit is on the Profit card, and cash is in Where the money is.</p>
-    <ul class="list">${row("Revenue",cedi(F.revenue),sumQty(rows)+" items sold",{strong:true})}</ul>
+    <ul class="list">${row("Product sales",cedi(F.revenue),sumQty(rows)+" items")}${row("Massage money in",cedi(F.massageIn))}${row("Revenue",cedi(F.revenue+F.massageIn),"all sellers, all products",{strong:true})}</ul>
     <h2 style="margin-top:14px">By product</h2>
     ${keys.length?`<ul class="list">${keys.map(k=>row(esc(k),cedi(byP[k].v),byP[k].u+" sold")).join("")}</ul>`:`<p class="empty">No sales in ${label}.</p>`}`);
 }
@@ -814,6 +814,7 @@ function renderMoney(){
     const missing=liveProducts().filter(p=>!Number(p.cost));
     body=`
       <div class="grid2 kpis">
+        <div class="tile"><b>${cedi((()=>{const A=moneyFigures(RECORD_START,todayISO());return A.revenue+A.massageIn})())}</b><span>revenue · all sellers since 19 Nov</span></div>
         <div class="tile"><b>${cedi(F.gross)}</b><span>gross profit</span></div>
         <div class="tile"><b>${cedi(F.savIn)}</b><span>total savings</span></div>
         <div class="tile accent"><b style="color:${F.net>=0?"var(--good)":"var(--bad)"}">${cedi(F.net)}</b><span>profit after expenses</span></div>
