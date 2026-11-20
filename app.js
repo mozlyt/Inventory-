@@ -422,8 +422,9 @@ function countSheet(){
       if(!rows.length){toast("Enter at least one count.",true);return}
       run($("ctBtn"),"save the count",async()=>{
         for(const r of rows){
-          if(r.d!==0) await ins("stock_moves",{day,product_id:r.p.id,kind:"adjust",marketer_id:null,qty:r.d,unit_cost:null,note:`Count: ${r.reason}`});
-          await ins("stock_counts",{day,product_id:r.p.id,counted:r.c,system_qty:r.s,difference:r.d,reason:r.reason});
+          let adjId=null;
+          if(r.d!==0){const [mv]=await api("/stock_moves",{method:"POST",prefer:"return=representation",body:{day,product_id:r.p.id,kind:"adjust",marketer_id:null,qty:r.d,unit_cost:null,note:`Count: ${r.reason}`}});adjId=mv?.id??null}
+          await ins("stock_counts",{day,product_id:r.p.id,counted:r.c,system_qty:r.s,difference:r.d,reason:r.reason,adjust_move_id:adjId});
         }},"Count saved");
     };
   });
@@ -467,6 +468,9 @@ function renderStock(){
       <div class="card"><h2>Recent stock movements</h2>
         ${S.moves.length?`<ul class="list">${S.moves.slice(0,25).map(mv=>`<li><button class="item" data-move="${mv.id}"><span class="grow"><span class="t">${{in:"Stock in",out:"Given to "+esc(mName(mv.marketer_id)),return:"Returned by "+esc(mName(mv.marketer_id)),adjust:"Count corrected"}[mv.kind]}</span><span class="s">${esc(P(mv.product_id)?.name||"Product")} · ${fmtDay(mv.day)}${mv.note?" · "+esc(mv.note):""}</span></span><span class="r"><b>${mv.kind==="out"?"→ ":mv.kind==="return"?"← ":mv.qty>0?"+":""}${mv.qty}</b></span></button></li>`).join("")}</ul>`:`<p class="empty">Nothing yet.</p>`}
       </div>
+      <div class="card"><h2>Stock count history</h2>
+        ${(S.stockCounts||[]).length?`<ul class="list">${S.stockCounts.slice(0,40).map(c=>`<li><div class="item"><span class="grow"><span class="t">${esc(P(c.product_id)?.name||"Product")}</span><span class="s">Recorded ${Number(c.system_qty)} · counted ${Number(c.counted)} · ${Number(c.difference)===0?"matched":(Number(c.difference)>0?"+":"")+Number(c.difference)}${c.reason?" · "+esc(c.reason):""}</span></span><span class="r small muted">${fmtDay(c.day)}<br>${esc(new Date(c.created_at).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}))}</span></div></li>`).join("")}</ul>`:`<p class="empty">No counts yet. Tap Count stock.</p>`}
+      </div>
     </div>`;
   r.querySelectorAll("[data-sk]").forEach(b=>b.onclick=()=>stockSheet(b.dataset.sk));
   $("stAddProd").onclick=()=>productForm(null);
@@ -476,7 +480,7 @@ function renderStock(){
   $("sfSet").onclick=()=>fundSheet("open");
   r.querySelectorAll("[data-open-m]").forEach(b=>b.onclick=()=>marketerPage(b.dataset.openM));
   r.querySelectorAll("[data-prod-edit]").forEach(b=>b.onclick=()=>productForm(P(b.dataset.prodEdit)));
-  r.querySelectorAll("[data-count]").forEach(b=>b.onclick=()=>countSheet(P(b.dataset.count)));
+  r.querySelectorAll("[data-count]").forEach(b=>b.onclick=()=>countSheet());
   r.querySelectorAll("[data-move]").forEach(b=>b.onclick=()=>moveSheet(S.moves.find(m=>String(m.id)===b.dataset.move)));
   massageStockBlock(r);
 }
@@ -506,21 +510,6 @@ function stockSheet(kind,mid){
       const row={day,product_id:pid,kind,marketer_id:(kind==="out"||kind==="return")?$("ssM").value:null,qty:Math.round(q),unit_cost:cost,note:$("ssNote").value.trim()};
       run($("ssBtn"),"save the stock",async()=>{await ins("stock_moves",row);if(cost&&cost!==Number(P(pid).cost)){await upd("products",pid,{cost});await api(`/sales?product_id=eq.${enc(pid)}&cost=eq.0`,{method:"PATCH",prefer:"return=minimal",body:{cost}})}},{in:"Stock added",out:"Stock given out",return:"Return saved"}[kind]);
     };
-  });
-}
-function countSheet(p){
-  const s=stockOf(p.id);
-  openSheet("Correct the count",`
-    <p><b>${esc(p.name)}</b>: the app thinks you have <b>${s.tracked?s.total:"no stock recorded"}</b>${s.withM?` (including ${s.withM} with marketers)`:""}.</p>
-    <label class="f">How many do you actually have right now? (store + with marketers)<input id="ccN" type="number" min="0" step="1" inputmode="numeric" placeholder="e.g. 10"></label>
-    <p class="small" id="ccDiff"></p>
-    <label class="f">Reason (optional)<input id="ccNote" placeholder="e.g. counted at home, 2 missing"></label>
-    <button class="btn-primary btn-block" id="ccBtn">Save count</button>
-    <p class="small muted">This adds a correction entry. Sales and other entries stay as they are.</p>`,()=>{
-    const diff=()=>{const v=$("ccN").value;if(v===""){$("ccDiff").textContent="";return null}const d=Math.round(Number(v))-s.total;$("ccDiff").textContent=d===0?"That matches. Nothing to change.":d>0?`${d} more than recorded. The app will add ${d}.`:`${-d} fewer than recorded. The app will take off ${-d}.`;return d};
-    $("ccN").oninput=diff; $("ccN").focus();
-    $("ccBtn").onclick=()=>{const d=diff();if(d==null){toast("Enter how many you have.",true);return}if(d===0){closeSheet();return}
-      run($("ccBtn"),"save the count",()=>ins("stock_moves",{day,product_id:p.id,kind:"adjust",marketer_id:null,qty:d,unit_cost:null,note:$("ccNote").value.trim()||("Counted "+$("ccN").value+" in hand")}),"Count corrected")};
   });
 }
 function moveSheet(mv){
@@ -1137,13 +1126,15 @@ function massageTx(f,t){
 
 /* ---- loading ---- */
 async function loadMassage(){
-  const [svc,kit,skit,kmv,th,bk,dl,bp,tp]=await Promise.all([
+  /* Everything dated before RECORD_START is hidden here too. The rows stay in the database. */
+  const inWin=a=>(a||[]).filter(x=>String(x.day||"")>=RECORD_START);
+  const [svc,kit,skit,kmv,th,bk,dl,bp,tp,sf,sc]=await Promise.all([
     api("/services?select=*&order=sort.asc"),api("/kit_items?select=*&order=name.asc"),api("/service_kit?select=*"),
     api("/kit_moves?select=*&order=created_at.desc"),api("/therapists?select=*&order=no.asc"),
     api("/bookings?select=*&order=created_at.desc"),api("/deliveries?select=*&order=created_at.desc"),
-    api("/booking_payments?select=*&order=created_at.desc"),api("/therapist_pay?select=*&order=created_at.desc")]);
-  const sf=await api("/stock_funds?select=*&order=created_at.desc");
-  Object.assign(S,{services:svc||[],kitItems:kit||[],serviceKit:skit||[],kitMoves:kmv||[],therapists:th||[],bookings:bk||[],deliveries:dl||[],bookingPayments:bp||[],therapistPay:tp||[],stockFunds:(sf||[]).filter(x=>String(x.day||"")>=RECORD_START)});
+    api("/booking_payments?select=*&order=created_at.desc"),api("/therapist_pay?select=*&order=created_at.desc"),
+    api("/stock_funds?select=*&order=created_at.desc"),api("/stock_counts?select=*&order=created_at.desc")]);
+  Object.assign(S,{services:svc||[],kitItems:kit||[],serviceKit:skit||[],kitMoves:inWin(kmv),therapists:th||[],bookings:inWin(bk),deliveries:inWin(dl),bookingPayments:inWin(bp),therapistPay:inWin(tp),stockFunds:inWin(sf),stockCounts:inWin(sc)});
 }
 
 /* ---- sessions screen ---- */
