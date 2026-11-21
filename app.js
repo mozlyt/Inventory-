@@ -365,6 +365,7 @@ function renderSell(){
       if(credit&&!cust){
         const rows=await api("/customers",{method:"POST",prefer:"return=representation",body:{full_name:typedName,phone,address:$("sfAddr").value.trim(),location_id:loc,created_by:me?.email||""}});
         cust=Array.isArray(rows)?rows[0]:rows;
+        if(!cust?.id) throw new Error("The customer could not be saved. Nothing was recorded.");
       }
       await ins("sales",{day,marketer_id:sellForm.mid,product_id:pr.id,product_name:pr.name,qty:sellForm.qty,price,cost:Number(pr.cost||0),method:sellForm.method,
         customer:credit?cust.full_name:"",customer_id:credit?cust.id:null,due_date:credit?($("sfDue").value||null):null,location_id:credit?loc:null,
@@ -851,7 +852,7 @@ function moneyFigures(f,t){
   const split=SPLIT.map(([n,p])=>({n,p,v:profit*p,sub:Math.round(p*100)+"% of profit after expenses"}));
   const pers=split.find(x=>x.n==="Personal income");
   if(pers){pers.v=profit*pers.p-mTher;pers.sub=`${Math.round(pers.p*100)}% of profit, less therapist pay of ${cedi(mTher)}`}
-  return {sales,pays,exps,savs,received,expenses,stockBought,spent:stockBought+expenses,savIn,savOut,revenue,cost,gross,mpay,net:profit,split,massageIn:mIn,massageKit:mKit,therapistPaid:mTher,withMarketers,customersOwe,toCollect:withMarketers+customersOwe,stockUnits,stockCost,stockPrice,savingsHeld,serviceOwed:serviceDebts().reduce((a,b)=>a+balanceOf(b),0)};
+  return {sales,pays,exps,savs,received,expenses,stockBought,spent:stockBought+expenses,savIn,savOut,revenue,cost,gross,mpay,net:profit,split,massageIn:mIn,massageKit:mKit,therapistPaid:mTher,withMarketers,customersOwe,serviceOwed:serviceDebts().reduce((a,b)=>a+balanceOf(b),0),toCollect:withMarketers+customersOwe+serviceDebts().reduce((a,b)=>a+balanceOf(b),0),stockUnits,stockCost,stockPrice,savingsHeld};
 }
 const row=(label,val,sub,opts={})=>`<li><div class="item"><span class="grow"><span class="${opts.strong?"t":""}">${label}</span>${sub?`<span class="s" style="white-space:normal">${sub}</span>`:""}</span><span class="r" ${opts.color?`style="color:${opts.color}"`:""}>${opts.strong?`<b>${val}</b>`:val}</span></div></li>`;
 
@@ -916,7 +917,7 @@ function renderMoney(){
         <div class="tile"><b>${cedi(F.gross)}</b><span>gross profit</span></div>
         <div class="tile"><b>${cedi(F.savIn)}</b><span>total savings</span></div>
         <div class="tile accent"><b style="color:${F.net>=0?"var(--good)":"var(--bad)"}">${cedi(F.net)}</b><span>profit after expenses</span></div>
-        <div class="tile"><b>${cedi(F.customersOwe)}</b><span>still to collect</span></div>
+        <div class="tile"><b>${cedi(F.customersOwe+F.serviceOwed)}</b><span>still to collect</span></div>
       </div>
       <div class="fab-row" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">
         <button class="qa" id="ovRev">${icon.box}Revenue</button>
@@ -928,7 +929,8 @@ function renderMoney(){
       <div class="wide">
         <div class="card"><h2>Where the money is</h2>
           <ul class="list">
-            ${row("Customers owe you",cedi(F.customersOwe),`${openDebts().length} open debt${openDebts().length===1?"":"s"}`,{strong:true})}
+            ${row("Customers owe you (pay-later sales)",cedi(F.customersOwe),`${openDebts().length} open debt${openDebts().length===1?"":"s"}`,{strong:true})}
+            ${row("Massage balances still owed",cedi(F.serviceOwed),`${serviceDebts().length} booking${serviceDebts().length===1?"":"s"} · counted separately from pay-later sales`)}
           </ul>
           <p class="small muted">Only money customers still owe you is shown here. Everything else is already in your hands or shared.</p>
         </div>
@@ -1007,7 +1009,7 @@ function renderMoney(){
       </div>
       <div class="card" id="debtors"><div class="row between"><h2>Debtors</h2><button class="btn-primary" id="dbAdd">Add customer who owes</button></div>
         <div class="grid2" style="margin:8px 0">
-          <div class="tile accent"><b>${cedi(owedNow)}</b><span>still to collect</span></div>
+          <div class="tile accent"><b>${cedi(owedNow+serviceDebts().reduce((t,b)=>t+balanceOf(b),0))}</b><span>still to collect</span></div>
           <div class="tile"><b>${groups.length}</b><span>customer${groups.length===1?"":"s"} owing</span></div>
           <div class="tile"><b>${overdueN}</b><span>overdue</span></div>
           <div class="tile"><b>${cedi(paidMo)}</b><span>paid this month</span></div>
@@ -1131,6 +1133,32 @@ function renderDebtList(){
   box.querySelectorAll("[data-dk]").forEach(b=>b.onclick=()=>customerSheet(b.dataset.dk));
   box.querySelectorAll("[data-svc]").forEach(b=>b.onclick=()=>paySheet(bookingById(b.dataset.svc)));
 }
+/* Owner edits a customer's details. Past sales keep the name they were recorded with; payments link by customer id, so history is unchanged. */
+function customerEditSheet(c){
+  if(!c) return;
+  const locs=S.locations||[];
+  openSheet("Customer details",`
+    <p class="muted">Past sales and payments are not changed. Each sale keeps the name it was recorded with.</p>
+    <label class="f">Full name<input id="ceN" value="${esc(c.full_name)}"></label>
+    <label class="f">Phone number<input id="ceP" type="tel" inputmode="tel" value="${esc(c.phone)}"></label>
+    <label class="f">Alternative phone (optional)<input id="ceA" value="${esc(c.alt_phone||"")}"></label>
+    <label class="f">Area or address<input id="ceAd" value="${esc(c.address||"")}"></label>
+    <label class="f">City (optional)<input id="ceC" value="${esc(c.city||"")}"></label>
+    <label class="f">GPS or landmark (optional)<input id="ceG" value="${esc(c.gps_text||"")}"></label>
+    ${locs.length>1?`<label class="f">Location<select id="ceL">${locs.map(l=>`<option value="${l.id}" ${String(l.id)===String(c.location_id)?"selected":""}>${esc(l.name)}</option>`).join("")}</select></label>`:""}
+    <label class="f">Notes (optional)<input id="ceNo" value="${esc(c.notes||"")}"></label>
+    <button class="btn-primary btn-block" id="ceBtn">Save details</button>`,()=>{
+    $("ceBtn").onclick=()=>{
+      const name=$("ceN").value.trim(), phone=$("ceP").value.trim();
+      if(!name){toast("Enter the customer's name.",true);return}
+      if(normPhone(phone).length<9){toast("Enter a phone number of at least 9 digits.",true);return}
+      const dup=(S.customers||[]).find(x=>String(x.id)!==String(c.id)&&normPhone(x.phone)===normPhone(phone));
+      if(dup){toast(`That number is ${dup.full_name}'s. Use their profile instead.`,true);return}
+      const loc=Number($("ceL")?.value||c.location_id)||null;
+      run($("ceBtn"),"save the details",()=>upd("customers",c.id,{full_name:name,phone,alt_phone:$("ceA").value.trim()||null,address:$("ceAd").value.trim(),city:$("ceC").value.trim(),gps_text:$("ceG").value.trim(),notes:$("ceNo").value.trim(),location_id:loc}),"Customer details saved");
+    };
+  });
+}
 /* One customer's record: every pay-later sale, its payments and what is still owed. key = "c:<customer id>" or "s:<sale id>". */
 function customerSheet(key){
   const id=key.slice(2), isC=key[0]==="c";
@@ -1142,6 +1170,7 @@ function customerSheet(key){
   openSheet(name,`
     <p class="muted">${c?esc(c.phone)+(c.address?" · "+esc(c.address):"")+(c.city?" · "+esc(c.city):""):"Phone not recorded"}${locName?" · "+esc(locName):""}</p>
     <div class="row between"><span class="muted">Still owed</span><span class="money-big">${cedi(totalOwed)}</span></div>
+    ${c?`<button class="btn-ghost btn-block" id="ceOpen">Edit details</button>`:""}
     ${sales.map(s=>{const pays=(S.customer_payments||[]).filter(p=>String(p.sale_id)===String(s.id)).sort((a,b)=>String(a.paid_at).localeCompare(String(b.paid_at))), left=debtOf(s);
       return `<div class="card" style="padding:12px;margin-top:10px">
         <div class="row between"><b>${esc(pName(s))} × ${s.qty}</b><span>${cedi(s.qty*s.price)}</span></div>
@@ -1151,6 +1180,7 @@ function customerSheet(key){
         ${left>0.009?`<button class="btn-primary btn-block" data-pay="${s.id}" style="margin-top:8px">Record payment</button>`:`<span class="pill good" style="margin-top:6px">paid in full</span>`}
       </div>`}).join("")}
     <p class="small muted">Payments are never edited. To fix one, cancel it with a reason and record the right amount.</p>`,root=>{
+    root.querySelector("#ceOpen")?.addEventListener("click",()=>customerEditSheet(c));
     root.querySelectorAll("[data-pay]").forEach(b=>b.onclick=()=>debtPaySheet((S.credit||[]).find(s=>String(s.id)===b.dataset.pay)));
     root.querySelectorAll("[data-void]").forEach(b=>b.onclick=()=>voidSheet((S.customer_payments||[]).find(p=>String(p.id)===b.dataset.void)));
   });
