@@ -1,9 +1,11 @@
 "use strict";
 /* MOZLYT Inventory — one-owner stock, sales, money and savings app.
-   Sign-in: Neon Auth. Records: Neon Data API, protected by row-level security. */
+   Sign-in: Supabase Auth. Records: Supabase Data API (PostgREST), protected by row-level security. */
 
-const AUTH="https://ep-jolly-fire-bc7cxdj3.neonauth.c-16.us-east-1.aws.neon.tech/mozlyt/auth";
-const REST="https://ep-jolly-fire-bc7cxdj3.apirest.c-16.us-east-1.aws.neon.tech/mozlyt/rest/v1";
+const SB="https://cdhprjmonwaomxmfxraz.supabase.co";
+const SB_KEY="sb_publishable_w1UQ0J6YPoKbtbNWpqNJuQ_y2ZjrtSr";   // publishable key: safe in the browser, access is decided by row-level security
+const AUTH=SB+"/auth/v1";
+const REST=SB+"/rest/v1";
 const TZ="Africa/Accra";
 
 const $=id=>document.getElementById(id);
@@ -18,43 +20,50 @@ const initials=n=>String(n||"?").trim().split(/\s+/).slice(0,2).map(w=>w[0]).joi
 const store={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}}};
 const enc=encodeURIComponent;
 
-/* =================== SIGN-IN =================== */
-let session=store.get("inv-session"), jwt=null, jwtExp=0, me=null;
+/* =================== SIGN-IN (Supabase Auth) =================== */
+/* The refresh token stays in this browser; the short-lived access token is kept in memory and renewed when it nears expiry. */
+let refreshTok=store.get("inv-sb-refresh"), jwt=null, jwtExp=0, me=null;
+store.set("inv-session",null);   // old Neon session, no longer used
 class HttpError extends Error{constructor(m,s){super(m);this.status=s}}
 async function authFetch(path,opts={}){
-  const headers={"Content-Type":"application/json"};
-  if(session) headers.Authorization="Bearer "+session;
-  const res=await fetch(AUTH+path,{method:opts.method||"GET",headers,credentials:"include",body:opts.body?JSON.stringify(opts.body):undefined});
-  const tok=res.headers.get("set-auth-token"); if(tok){session=tok;store.set("inv-session",tok)}
+  const headers={"Content-Type":"application/json","apikey":SB_KEY};
+  if(opts.token) headers.Authorization="Bearer "+opts.token;
+  const res=await fetch(AUTH+path,{method:opts.method||"GET",headers,body:opts.body?JSON.stringify(opts.body):undefined});
   let data=null; try{data=await res.json()}catch(e){}
-  if(!res.ok) throw new HttpError(data?.message||data?.code||("HTTP "+res.status),res.status);
+  if(!res.ok){
+    const msg=data?.error_description||data?.msg||data?.message||data?.error||("HTTP "+res.status);
+    throw new HttpError(/invalid login credentials/i.test(msg)?"Wrong email or password.":msg,res.status===400?401:res.status);
+  }
   return {data,res};
 }
 const decodeJwt=t=>{try{return JSON.parse(atob(t.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")))}catch(e){return null}};
-async function getJwt(force){
-  if(!force&&jwt&&Date.now()<jwtExp-60000) return jwt;
-  let t=null;
-  try{const {data}=await authFetch("/token");t=data?.token||null}catch(e){if(e.status===401)throw e}
-  if(!t){const {data,res}=await authFetch("/get-session");t=res.headers.get("set-auth-jwt")||data?.session?.token||null;if(data?.user)me=data.user}
-  if(!t) throw new HttpError("Not signed in",401);
-  const p=decodeJwt(t); jwt=t; jwtExp=(p?.exp||0)*1000||Date.now()+600000;
-  if(p&&!me) me={email:p.email,name:p.name,id:p.sub};
+function takeSession(d){
+  if(!d?.access_token) throw new HttpError("Not signed in",401);
+  jwt=d.access_token; jwtExp=Date.now()+(Number(d.expires_in)||3600)*1000;
+  if(d.refresh_token){refreshTok=d.refresh_token;store.set("inv-sb-refresh",refreshTok)}
+  const p=decodeJwt(jwt), u=d.user||{};
+  me={email:u.email||p?.email,name:u.user_metadata?.name||u.email||p?.email,id:u.id||p?.sub};
   return jwt;
 }
+async function getJwt(force){
+  if(!force&&jwt&&Date.now()<jwtExp-60000) return jwt;
+  if(!refreshTok) throw new HttpError("Not signed in",401);
+  try{const {data}=await authFetch("/token?grant_type=refresh_token",{method:"POST",body:{refresh_token:refreshTok}});return takeSession(data)}
+  catch(e){if(e.status===401||e.status===400){refreshTok=null;store.set("inv-sb-refresh",null)}throw e}
+}
 async function signIn(email,password){
-  const {data}=await authFetch("/sign-in/email",{method:"POST",body:{email,password}});
-  if(data?.token){session=data.token;store.set("inv-session",data.token)}
-  me=data?.user||null; jwt=null; return getJwt(true);
+  const {data}=await authFetch("/token?grant_type=password",{method:"POST",body:{email,password}});
+  return takeSession(data);
 }
 async function signOut(){
-  try{await authFetch("/sign-out",{method:"POST",body:{}})}catch(e){}
-  session=null;store.set("inv-session",null);jwt=null;me=null;location.reload();
+  try{if(jwt)await authFetch("/logout",{method:"POST",token:jwt,body:{}})}catch(e){}
+  refreshTok=null;store.set("inv-sb-refresh",null);jwt=null;me=null;location.reload();
 }
 
 /* =================== DATA API =================== */
 async function api(path,{method="GET",body,prefer}={}){
   let token=await getJwt();
-  const go=t=>fetch(REST+path,{method,headers:{"Authorization":"Bearer "+t,"Content-Type":"application/json",...(prefer?{"Prefer":prefer}:{})},body:body!==undefined?JSON.stringify(body):undefined});
+  const go=t=>fetch(REST+path,{method,headers:{"apikey":SB_KEY,"Authorization":"Bearer "+t,"Content-Type":"application/json",...(prefer?{"Prefer":prefer}:{})},body:body!==undefined?JSON.stringify(body):undefined});
   let res=await go(token);
   if(res.status===401){token=await getJwt(true);res=await go(token)}
   const text=await res.text(); let data=null; try{data=text?JSON.parse(text):null}catch(e){data=text}
